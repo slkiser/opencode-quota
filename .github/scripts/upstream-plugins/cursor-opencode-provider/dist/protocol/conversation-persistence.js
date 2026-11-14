@@ -118,7 +118,8 @@ function cloneConversation(value) {
  * turn_provenance_json=12, host_note=13, early_steers_json=14,
  * lost_request_json=15, sent_image_hashes=16 (repeated), sent_images_checkpoint_sha256=17,
  * occupancy_checkpoint=18 (token-details-only checkpoint, never Run state),
- * session_edits_deny_sent=19.
+ * session_edits_deny_sent=19, plan_operations_json=20, occupancy_guard_json=21,
+ * run_host_note=22.
  * Blob: id=1, data=2. Tool: name=1, description=2,
  * input_schema_json=3, source_name=4.
  *
@@ -264,6 +265,12 @@ function encodeCacheFile(value) {
         writer.uint32(fieldTag(18, 2)).bytes(value.occupancyCheckpoint);
     if (value.sessionEditsDenySent)
         writer.uint32(fieldTag(19, 0)).bool(true);
+    if (value.planOperations)
+        writer.uint32(fieldTag(20, 2)).string(value.planOperations);
+    if (value.occupancyGuard)
+        writer.uint32(fieldTag(21, 2)).string(value.occupancyGuard);
+    if (value.runHostNote)
+        writer.uint32(fieldTag(22, 2)).string(value.runHostNote);
     return { protobufBytes: writer.finish(), requestContextBytes: requestContext.length };
 }
 function decodeProtobuf(data) {
@@ -287,6 +294,9 @@ function decodeProtobuf(data) {
     const sentImageHashes = [];
     let sentImagesCheckpoint;
     let sessionEditsDenySent = false;
+    let planOperations;
+    let occupancyGuard;
+    let runHostNote;
     while (reader.pos < reader.len) {
         const tag = reader.uint32();
         const wireType = tag & 7;
@@ -386,6 +396,21 @@ function decodeProtobuf(data) {
                     throw new Error("invalid session edits deny marker");
                 sessionEditsDenySent = reader.bool();
                 break;
+            case 20:
+                if (wireType !== 2)
+                    throw new Error("invalid plan operations");
+                planOperations = reader.string();
+                break;
+            case 21:
+                if (wireType !== 2)
+                    throw new Error("invalid occupancy guard");
+                occupancyGuard = reader.string();
+                break;
+            case 22:
+                if (wireType !== 2)
+                    throw new Error("invalid run host note");
+                runHostNote = reader.string();
+                break;
             default:
                 reader.skipType(wireType);
         }
@@ -413,6 +438,9 @@ function decodeProtobuf(data) {
         ...(lostRequest ? { lostRequest } : {}),
         ...(sentImagesCheckpoint && sentImageHashes.length > 0 ? { sentImageHashes, sentImagesCheckpoint } : {}),
         ...(sessionEditsDenySent ? { sessionEditsDenySent } : {}),
+        ...(planOperations ? { planOperations } : {}),
+        ...(occupancyGuard ? { occupancyGuard } : {}),
+        ...(runHostNote ? { runHostNote } : {}),
     };
 }
 function isFresh(value, now) {
@@ -649,10 +677,77 @@ function queueWrite(store, value) {
     store.writeChain = write;
     return write;
 }
+/**
+ * Invalidate through a checked descriptor: truncation needs no new directory or
+ * inode, and an atomic replacement at the same name cannot redirect the write.
+ * Leave the empty file for ordinary maintenance rather than unlinking a name
+ * that another process may have replaced since the identity check.
+ */
+async function invalidateCacheCandidate(filePath, identity) {
+    await testHook?.("before-invalidate", filePath);
+    let handle;
+    try {
+        handle = await open(filePath, fsConstants.O_WRONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
+    }
+    catch (error) {
+        if (errorCode(error) === "ENOENT")
+            return;
+        throw error;
+    }
+    try {
+        const stat = await handle.stat({ bigint: true });
+        if (stat.isFile() && sameFile(identity, stat)) {
+            await testHook?.("after-invalidate-open", filePath);
+            await handle.truncate(0);
+        }
+    }
+    finally {
+        await handle.close();
+    }
+}
+/** A reader can recover a quarantined copy after the live snapshot disappears. Invalidate those copies too. */
+async function invalidateSessionSnapshots(store, filePath) {
+    const invalidate = async (candidate) => {
+        let handle;
+        try {
+            handle = await openSnapshot(candidate);
+        }
+        catch (error) {
+            if (errorCode(error) === "ENOENT")
+                return;
+            throw error;
+        }
+        try {
+            const stat = await handle.stat({ bigint: true });
+            const header = await readConversationCacheHeader(handle);
+            if (header.status === "metadata" && header.value.sessionKey === store.sessionKey) {
+                await invalidateCacheCandidate(candidate, stat);
+            }
+        }
+        finally {
+            await handle.close();
+        }
+    };
+    try {
+        const directory = quarantineDirectory(filePath);
+        for await (const entry of removableDirectoryEntries(directory)) {
+            if (entry.isFile() && entry.name.endsWith(".snapshot"))
+                await invalidate(path.join(directory, entry.name));
+        }
+    }
+    finally {
+        // A collector can restore and unlink a quarantine entry during iteration;
+        // inspect the live name last, even if inspection of quarantine failed.
+        await invalidate(filePath);
+    }
+}
+/** Without `expectedConversationId`, invalidate any snapshot of the session. */
 function queueDelete(store, expectedConversationId) {
     const write = store.writeChain.catch(() => { }).then(async () => {
         const filePath = conversationCacheFilePath(store.cacheDir, store.sessionKey);
         await withFileOperation(filePath, async () => {
+            if (expectedConversationId === undefined)
+                return invalidateSessionSnapshots(store, filePath);
             const opened = await openConversationFile(filePath);
             if (!opened)
                 return;
@@ -986,6 +1081,17 @@ async function getStore(cacheDir, sessionKey, now = Date.now()) {
 export async function getPersistedConversation(cacheDir, sessionKey, now = Date.now()) {
     return (await loadPersistedConversation(cacheDir, sessionKey, now)).value;
 }
+/** Drop this module copy's cached view of a session's snapshot so the next read goes to disk. */
+export async function forgetCachedConversation(cacheDir, sessionKey) {
+    const key = `${path.resolve(cacheDir)}\0${sessionKey}`;
+    const pending = stores.get(key);
+    if (!pending)
+        return;
+    const store = await pending.catch(() => undefined);
+    await store?.writeChain.catch(() => { });
+    if (stores.get(key) === pending)
+        stores.delete(key);
+}
 /** Read a snapshot together with the reason restart hydration did not restore it. */
 export async function loadPersistedConversation(cacheDir, sessionKey, now = Date.now()) {
     return takeConversation(await getStore(cacheDir, sessionKey, now), now);
@@ -1025,6 +1131,17 @@ export async function deletePersistedConversation(cacheDir, sessionKey, expected
     store.value = undefined;
     store.loadStatus = "missing";
     await queueDelete(store, current.conversationId);
+}
+/**
+ * A failed save left the snapshot on disk behind the state it was saving, whichever conversation that snapshot
+ * holds: invalidate it so a restart starts from host history instead of resuming it.
+ */
+export async function discardPersistedConversation(cacheDir, sessionKey) {
+    const store = await getStore(cacheDir, sessionKey);
+    store.head = undefined;
+    store.value = undefined;
+    store.loadStatus = "missing";
+    await queueDelete(store);
 }
 /** Full snapshots still held in memory; the store should keep heads only. */
 export async function retainedConversationSnapshotsForTests() {

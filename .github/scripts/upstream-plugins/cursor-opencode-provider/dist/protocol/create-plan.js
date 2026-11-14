@@ -14,6 +14,10 @@
  *
  * Body is plain markdown (the same shape a plan-mode model would write with
  * `write`). Cursor YAML frontmatter is never emitted.
+ *
+ * Native CreatePlan persistence goes through an advertised host `write` or
+ * patch tool — never a direct filesystem write from this module. File
+ * permission prompts authorize that save; execution review is a later step.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -22,6 +26,7 @@ import { hostPlansDir } from "../context/paths.js";
 import { isHostPlanAgent } from "./cursor-mode.js";
 import { decodeMessageSparse } from "./messages.js";
 import { errorMessage } from "../debug.js";
+import { buildAddFilePatch, hostPatchTool, } from "./apply-patch.js";
 import { parseAnswerSegments, } from "./ask-question.js";
 const PLAN_ADJECTIVES = [
     "brave",
@@ -89,7 +94,7 @@ const PLAN_NOUNS = [
 ];
 /** Optional host plan-stage tool advertised by a compatible host. */
 export const CURSOR_PLAN_STAGE_TOOL = "cursor_plan_stage";
-/** Held InteractionQuery continuation field for a native host plan stage. */
+/** Held InteractionQuery continuation field for CreatePlan write and review. */
 export const CREATE_PLAN_RESULT_FIELD = "create_plan_request_response";
 /** CreatePlan raised before an approved switch into the host plan agent took effect. */
 export const CREATE_PLAN_HOST_PLAN_PENDING_REASON = "Plan mode starts in the host's plan agent after this turn. Do not record the plan " +
@@ -381,10 +386,10 @@ export function renderOpencodePlanMarkdown(args) {
     return body ? `${body}\n` : "";
 }
 /**
- * Write the plan under {@link hostPlansDir} and return a `file://` URI.
+ * Resolve plan destination and markdown without touching the filesystem.
  * Empty / missing content is the caller's responsibility (empty plan_uri ack).
  */
-export function writeOpencodePlanFile(args, workspaceRoot, created = Date.now(), 
+export function prepareCreatePlanFile(args, workspaceRoot, created = Date.now(), 
 /** Exact host-owned plan file; default is a new file under {@link hostPlansDir}. */
 target) {
     const markdown = renderOpencodePlanMarkdown(args);
@@ -392,20 +397,68 @@ target) {
         return { ok: false, error: "CreatePlan produced no plan content to write" };
     }
     const planPath = target ?? resolveHostPlanPath(workspaceRoot, args.name, created);
-    try {
-        mkdirSync(path.dirname(planPath), { recursive: true });
-        writeFileSync(planPath, markdown, "utf-8");
-    }
-    catch (err) {
-        const message = errorMessage(err);
-        return { ok: false, error: `Failed to write plan file: ${message}` };
-    }
     return {
         ok: true,
         planPath,
         planUri: pathToFileURL(planPath).href,
         markdown,
     };
+}
+/**
+ * Prefer an advertised `write`, otherwise a host patch tool. Never invent a
+ * binary or shell fallback when neither is available.
+ */
+export function resolvePlanPersistence(advertised, filePathKey = "filePath") {
+    const names = advertised instanceof Set ? advertised : new Set(advertised);
+    if (names.has("write"))
+        return { kind: "write", toolName: "write", filePathKey };
+    const patch = hostPatchTool(names);
+    if (patch)
+        return { kind: "patch", toolName: patch };
+    return {
+        kind: "unsupported",
+        error: "CreatePlan requires an advertised write or patch tool to save the plan file",
+    };
+}
+/** Build the host write or Add File patch call for a prepared plan. */
+export function buildPlanPersistenceCall(route, planPath, markdown) {
+    if (route.kind === "write") {
+        return {
+            ok: true,
+            toolName: "write",
+            input: { [route.filePathKey]: planPath, content: markdown },
+        };
+    }
+    try {
+        return {
+            ok: true,
+            toolName: route.toolName,
+            input: { patchText: buildAddFilePatch(planPath, markdown, route.toolName) },
+        };
+    }
+    catch (err) {
+        return { ok: false, error: errorMessage(err) || "CreatePlan cannot represent this plan as a patch" };
+    }
+}
+/**
+ * Test helper: prepare then write the plan under {@link hostPlansDir}.
+ * Production CreatePlan paths must use a host file tool instead.
+ */
+export function writeOpencodePlanFile(args, workspaceRoot, created = Date.now(), 
+/** Exact host-owned plan file; default is a new file under {@link hostPlansDir}. */
+target) {
+    const prepared = prepareCreatePlanFile(args, workspaceRoot, created, target);
+    if (!prepared.ok)
+        return prepared;
+    try {
+        mkdirSync(path.dirname(prepared.planPath), { recursive: true });
+        writeFileSync(prepared.planPath, prepared.markdown, "utf-8");
+    }
+    catch (err) {
+        const message = errorMessage(err);
+        return { ok: false, error: `Failed to write plan file: ${message}` };
+    }
+    return prepared;
 }
 /**
  * The plan as the user reads it before approving execution.

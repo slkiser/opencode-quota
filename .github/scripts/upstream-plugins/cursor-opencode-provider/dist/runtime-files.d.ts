@@ -12,6 +12,8 @@ export type RuntimeLayout = {
 export declare function runtimeLayout(root: string, create?: boolean): RuntimeLayout;
 export declare function runtimeRootFromContext(context: Record<string, unknown> | undefined): string | undefined;
 export declare function maintainRuntimeFiles(layout: RuntimeLayout, now?: number): void;
+/** A read of a host shell's terminal record, which `runtimeExecMessages` answers without the host. */
+export declare function isTerminalRecordRead(message: Record<string, unknown>, context: Record<string, unknown> | undefined): boolean;
 /** Native internal filesystem requests never enter the host's workspace tools. */
 export declare function runtimeExecMessages(message: Record<string, unknown>, context: Record<string, unknown> | undefined, allowTools: boolean): Promise<Uint8Array[] | undefined>;
 /**

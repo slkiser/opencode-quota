@@ -1,14 +1,17 @@
+import { acknowledgeHostHistoryRewrite, awaitHostHistoryRewrite } from "./host-history-rewrite.js";
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { APICallError } from "@ai-sdk/provider";
 import protobuf from "protobufjs";
 import { newRetryBudget, turnRetryBudget, forgetRetryBudget, reserveRetry, resetRetryBudgetsForTests } from "./retry-budget.js";
+import { isOfflineFailure, startOfflineWait, waitOffline } from "./offline.js";
 import { PARALLEL_STEP_IDLE_MS, createParallelStep, isParallelStepProgressFrame, noteListedCallCount, noteParallelStepProgress, noteToolRequestsListedSeen, parallelStepCountMet, recordParallelStepEmission, resetToolRequestsListedSeenForTests, resolveParallelStepCall, shouldGuardCloseParallelStep, shouldHoldParallelStep, } from "./parallel-step.js";
-import { bidiRunStream, CursorRunInterruptedError, frameArrival, lastFrameArrival, normalizeAgentRunOrigin, } from "./transport/connect.js";
+import { HELD_CALL_CANCELLED_REASON, announceCall, createStepOrder, dropHeldExec, finishCall as finishOrderedCall, holdExec, isFileChangeCall, isFileChangeDisplay, isFileChangeExec, noteExecResult, noteOrderedCallCount, orderExec, runExec, startOrderedStep, takeCancelledExecs, takeReleasableExecs, } from "./step-order.js";
+import { bidiRunStream, compressRunRequestAhead, CursorRunInterruptedError, frameArrival, lastFrameArrival, normalizeAgentRunOrigin, } from "./transport/connect.js";
 import { isStreamWriteBlocked, StreamWriteDrainError, waitForStreamWrites, writeStreamMessage as writeWithBackpressure, } from "./stream-write.js";
-import { clearUnansweredEarlySteers, forgetEarlySteerRecords, forgetUndeliveredEarlySteer, handOverEarlySteers, isEarlySteerTracked, needsHostHistory, listenForHostSteers, markEarlySteerDelivered, markEarlySteersCheckpointed, matchEarlySteers, recordEarlySteer, resetHostSteersForTests, settleEarlySteers, serializeEarlySteers, } from "./host-steer.js";
-import { isDebugEnabled, trace, traceRequestContextPaths } from "./debug.js";
+import { carriesSteer, clearUnansweredEarlySteers, findEarlySteer, forgetEarlySteerRecords, forgetUndeliveredEarlySteer, handOverEarlySteers, isEarlySteerTracked, needsHostHistory, listenForHostSteers, markEarlySteerDelivered, markEarlySteersCheckpointed, matchEarlySteers, recordEarlySteer, resetHostSteersForTests, settleEarlySteers, serializeEarlySteers, } from "./host-steer.js";
+import { isDebugEnabled, trace, traceRequestContextPaths, traceToolList, traceVerbose } from "./debug.js";
 import { toolResultFailure } from "./opencode2/tool-results.js";
 import { isExchangeableApiKey } from "./auth.js";
 import { resolveBearerToken } from "./auth-renewal.js";
@@ -16,12 +19,12 @@ import { buildRunRequest, buildHeartbeat, buildCancelAction, buildExecHeartbeat 
 import { onHostInterrupt } from "./host-interrupt.js";
 import { decodeFramePayload } from "./protocol/framing.js";
 import { debugWalkTurnEnded, decodeMessage, encodeMessage } from "./protocol/messages.js";
-import { parseExecServerMessage, missingRequiredToolArguments, misplacedShellCommand, buildToolCallPart, buildExecClientMessages, attachHookAdditionalContexts, extractOpenCodeReadInstruction, execResultImages, buildReadRejectionMessages, buildUnsupportedExecDeny, classifyMissingReadTarget, isUriReadTarget, resolveReadTargetPath, parseExecIdFromToolCallId, detectExecVariantField, buildRequestContextResult, buildMcpStateResult, buildListMcpResourcesFallback, buildReadMcpResourceFallback, buildCustomWebToolAliases, extractHostSubagentCatalog, toolsToDescriptors, resolveToolServerIdentity, resolveCustomWebToolAlias, remapNativeSubagentForCatalog, preferCorrelatedTaskDescription, appendTaskAttachments, buildTaskAttachmentReadMessages, remapCorrelatedEditWriteForCatalog, remapEditToolsForCatalog, hostToolForCursorEdit, cursorEditReadAnswer, editReadIdentity, cursorEditReadReachesHost, buildCompleteEditReadMessages, rejectPartialReadMutation, binaryWritePayload, CUSTOM_WEBFETCH_TOOL, CUSTOM_WEBSEARCH_TOOL, CUSTOM_LIST_MCP_RESOURCES_TOOL, CUSTOM_READ_MCP_RESOURCE_TOOL, hostToolDialectFromTools, opencodePathArg, } from "./protocol/tools.js";
+import { parseExecServerMessage, missingRequiredToolArguments, misplacedShellCommand, buildToolCallPart, buildExecClientMessages, attachHookAdditionalContexts, extractOpenCodeReadInstruction, execResultImages, buildReadRejectionMessages, buildUnsupportedExecDeny, classifyMissingReadTarget, isUriReadTarget, resolveReadTargetPath, parseExecIdFromToolCallId, detectExecVariantField, buildRequestContextResult, buildMcpStateResult, buildListMcpResourcesFallback, buildReadMcpResourceFallback, buildCustomWebToolAliases, extractHostSubagentCatalog, toolsToDescriptors, resolveToolServerIdentity, resolveCustomWebToolAlias, remapNativeSubagentForCatalog, preferCorrelatedTaskDescription, appendTaskAttachments, buildTaskAttachmentReadMessages, remapCorrelatedEditWriteForCatalog, remapEditToolsForCatalog, hostToolForCursorEdit, cursorEditReadAnswer, editReadIdentity, cursorEditReadReachesHost, buildCompleteEditReadMessages, rejectPartialReadMutation, binaryWritePayload, CUSTOM_WEBFETCH_TOOL, CUSTOM_WEBSEARCH_TOOL, CUSTOM_LIST_MCP_RESOURCES_TOOL, CUSTOM_READ_MCP_RESOURCE_TOOL, hostToolDialectFromTools, mapCursorArgsToOpencode, opencodePathArg, } from "./protocol/tools.js";
 import { hostPatchTool, isHostPatchTool } from "./protocol/apply-patch.js";
 import { buildGitDiffUnavailableMessages } from "./protocol/git-diff.js";
-import { runtimeExecMessages, runtimeRootFromContext } from "./runtime-files.js";
+import { isTerminalRecordRead, runtimeExecMessages, runtimeRootFromContext } from "./runtime-files.js";
 import { createManagedTerminal } from "./terminal-runner.js";
-import { cursorExecVariantByRequestField, describeCursorExecVariant } from "./protocol/exec-variants.js";
+import { cursorExecVariantByRequestField, describeCursorExecVariant, isExecRequestWithoutNewCall } from "./protocol/exec-variants.js";
 import { appendCheckpointUserGrounding, appendWorkspaceRootGrounding } from "./protocol/workspace-grounding.js";
 import { progressOnlyContinuationPrompt, shouldContinueProgressOnlyTurn, } from "./protocol/progress-continuation.js";
 import { advertisedToolNamesFromDescriptors, displayNativeDiscoveryError, displayMcpToolError, extractExecDisplayCallId, extractProtobufSubmessage, listProtobufFieldNumbers, parseDisplayToolCall, taskToolCallAttachments, resolveBridgedOpenCodeToolCall, isNativeDisplayToolCall, snapshotMirroredTodos, snapshotMirroredTodosFromReadOutput, } from "./protocol/tool-call-bridge.js";
@@ -30,22 +33,23 @@ import { buildAskQuestionInteractionReply, buildAsyncAskQuestionCompletion, buil
 import { ASK_QUESTION_RESULT_FIELD, askQuestionResultFromToolOutput, askQuestionToolInput, } from "./protocol/ask-question.js";
 import { SWITCH_MODE_RESULT_FIELD, followHostPlanAgent, getActiveCursorMode, isBridgedCursorPlanModeActive, isCursorPlanModeActive, SESSION_EDITS_DENIED_SWITCH_REASON, SESSION_EDITS_DENIED_REMINDER, setActiveCursorMode, switchModeRejectedResult, switchModeResultFromToolOutput, switchModeToolInput, takeActiveCursorModeReminder, takeHostPlanAgentNote, } from "./protocol/switch-mode.js";
 import { cursorAgentModeWireValue, cursorModeRole, hostAgentForCursorMode, isHostPlanAgent, } from "./protocol/cursor-mode.js";
-import { CREATE_PLAN_NOT_APPROVED_REASON, CREATE_PLAN_RESULT_FIELD, CURSOR_PLAN_STAGE_TOOL, createPlanApprovalOutcome, createPlanRefineReason, createPlanSessionEditsDeniedReason, createPlanStageInput, } from "./protocol/create-plan.js";
+import { CREATE_PLAN_NOT_APPROVED_REASON, CREATE_PLAN_RESULT_FIELD, CURSOR_PLAN_STAGE_TOOL, createPlanApprovalOutcome, createPlanApprovalQuestion, createPlanApprovalQuestionInput, createPlanRefineReason, createPlanSessionEditsDeniedReason, createPlanStageInput, } from "./protocol/create-plan.js";
+import { clearPlanOperation, clearPlanOperations, incompletePlanOperations, recordPlanOperation, updatePlanOperationConsumed, } from "./protocol/plan-operations.js";
 import { notPermittedThisTurnReason, resetSessionEditsGuidanceForTests, sessionEditsGuidance, recordSessionEditsGuidance, SESSION_PERMISSIONS_UNAVAILABLE_REASON, } from "./protocol/session-edits.js";
 import { hostPlanFileFor } from "./host-plan-file.js";
 import { flushHostAgentModeSwitch, hostAgentModeSwitchKind, isHostAgentHandoffPending, isHostPlanEntryPending, queueHostAgentModeSwitch, } from "./host-agent-mode.js";
 import { CURSOR_IMAGE_SAVE_TOOL, imageMimeForPath, remapCursorImageWritePath, } from "./protocol/generate-image.js";
-import { stageCursorImage } from "./image-staging.js";
+import { distinctInputImagePath, stageCursorImage } from "./image-staging.js";
 import { IMAGE_PERMISSION_DENIED_PREFIX } from "./image-save.js";
 import { checkpointTokenDetails, getCheckpoint, setCheckpoint } from "./protocol/checkpoint.js";
 import { EarlyToolRows, cursorEditAnnouncement, cursorEditFailure, cursorEditFailureToolCallId, cursorEditOutcome, earlyRowResult, earlyRowToolCallId, parseEarlyRowToolCallId, shouldOpenEarlyRow, } from "./early-tool-rows.js";
 import { carryLostRequest, dropLostRequest, hasLostRequest, noteCheckpoint, rememberLostRequest, } from "./lost-request.js";
 import { currentCursorTokenBreakdown, cursorContextUsageMetadata, decodeConversationTokenDetails, } from "./protocol/token-details.js";
 import { conversationBlobCount, inspectConversationBlobGraph, } from "./protocol/blob-store.js";
-import { bindConversationId, peekConversationId, resolveConversationGroupId, } from "./protocol/conversation-bind.js";
+import { bindConversationId, isActiveConversationBinding, peekConversationId, resolveConversationGroupId, } from "./protocol/conversation-bind.js";
 import { beginEmittedStep, detectForeignHistory, finishEmittedStep, recordEmittedPart, resumeEmittedStep, trackTurnProvenance, } from "./protocol/turn-provenance.js";
-import { clearPersistedConversationState, hydrateConversationState, hydrateTurnProvenance, persistConversationState, } from "./protocol/conversation-state.js";
-import { confirmHistoryImagesAtTurnEnd, forgetHeldHistoryImages, heldHistoryImageHashes, noteHistoryImageCheckpoint, noteHistoryImagesSent, resetHeldHistoryImagesForTests, runHistoryImages, } from "./protocol/sent-history-images.js";
+import { clearPersistedConversationState, hydrateConversationState, onCopyStateReplaced, hydrateTurnProvenance, persistConversationState, } from "./protocol/conversation-state.js";
+import { confirmHistoryImagesAtTurnEnd, forgetHeldHistoryImages, heldHistoryImageHashes, noteHistoryImageCheckpoint, noteHistoryImagesSent, resetHeldHistoryImagesForTests, carryHistoryImages, historyImagesHeldAt, runHasHistoryImage, runHistoryImages, } from "./protocol/sent-history-images.js";
 import { initializeConversationPersistence } from "./protocol/conversation-persistence.js";
 import { resolveContinuationPolicy, readSessionFrame, sessionManager, stoppedWith, } from "./session.js";
 import { CursorAuthError, CursorLocalCancellationError, CursorProtocolError, CursorProviderError, CursorServerError, CursorTransportError, hostFacingError, hostRetryError, isRejectedCredentialError, isTransientGrpcStatus, noProgressResumeError, retrySuppressedError, toCursorProviderError, } from "./errors.js";
@@ -61,14 +65,14 @@ import { resolveAgentUrl } from "./agent-url.js";
 import { CURSOR_API_HOST, CURSOR_COMPACTION_OPTION, CURSOR_HISTORY_REWRITE_OPTION, CURSOR_HOST_AGENT_OPTION, CURSOR_SESSION_EDITS_DENIED_OPTION, CURSOR_SESSION_PERMISSIONS_UNAVAILABLE_OPTION, } from "./shared.js";
 import { isCompactionSession } from "./compaction-marker.js";
 import { resolveSessionWorkspaceRoot } from "./session-directory.js";
-import { assertCursorUserImageSupport, extractCursorPromptImages, extractCursorToolResultImages, MAX_CURSOR_IMAGE_INPUT_BYTES, } from "./image-input.js";
-import { getDocumentedCursorModelContext, resolveCursorModelSupportsImages } from "./model-metadata.js";
+import { extractCursorPromptImages, extractCursorToolResultImages, imageContentHash, MAX_CURSOR_IMAGE_INPUT_BYTES, } from "./image-input.js";
+import { getDocumentedCursorModelContext } from "./model-metadata.js";
 import { CURSOR_TIMEOUT_BACKGROUND, consumeCursorShellResult, registerCursorShellCall, resolveCursorShellPath, shellPolicyFromMetadata, withoutHostShellExitNotice, } from "./shell-timeout.js";
 import { decodePersistedHostNotes, encodePersistedHostNotes, hostNoteHookContexts, hostNoteText, wrapHostNotesForCursor, } from "./protocol/host-notes.js";
-import { analyzeReplayFrame, announcedCallsClaimed, AttemptReplaySafety, describeFrameLayout } from "./replay-safety.js";
+import { analyzeReplayFrame, announcedCallsClaimed, AttemptReplaySafety, describeFrameLayout, historyCoverage, markRunInjectionDelivered, takeAppendedInjection, trackRunInjection, } from "./replay-safety.js";
 import { readAllFieldsStrict } from "./protocol/struct.js";
-import { cursorUsageCountersFromTurnEnded, emptyLanguageModelV3Usage, formatCursorCacheDiagnostics, formatCursorTokenCategories, formatFinishTrace, formatTurnUsageValidation, missingRulesWarning, occupancyValidationCounters, turnEndedCounter, } from "./usage.js";
-import { billingLedger, cursorRunCost, hostStepPrices, nanoAiuForUsd, shapeStepUsage, turnEndedCostUsd, } from "./billing.js";
+import { cursorUsageCountersFromTurnEnded, emptyLanguageModelV3Usage, formatCursorCacheDiagnostics, formatCursorCategoryCharacters, formatCursorTokenCategories, formatFinishTrace, formatTurnUsageValidation, missingRulesWarning, occupancyValidationCounters, turnEndedCounter, } from "./usage.js";
+import { billingLedger, cursorRunCost, hostStepPrices, maxOutputWithinUsd, nanoAiuForUsd, shapeStepUsage, turnEndedCostUsd, } from "./billing.js";
 /** Unknown frame layouts already traced in this process; each is logged once. */
 const unknownFrameLayouts = new Set();
 let _availableModels;
@@ -83,13 +87,22 @@ const toolCatalogBySession = new Map();
 let nextHostNoteOrder = 0;
 const undeliveredHostNotesBySession = new Map();
 /**
- * Host notes injected into a Run and not yet acknowledged, per OpenCode session
- * and injection id. Cleared on `delivered`; anything else returns the notes to
+ * Host notes injected into a Run and not yet in a checkpoint it stored, per
+ * OpenCode session and injection id. `delivered` marks an entry; the Run's next
+ * stored checkpoint clears it, since Cursor stores the checkpoint holding the
+ * note after the ack. Anything else returns the notes to
  * `undeliveredHostNotesBySession`, as Cursor SDK `Run.steer` reverts to a
  * follow-up. The owning Run is kept so notes are released only once it can no
  * longer deliver them.
  */
 const hostNoteInjectionsBySession = new Map();
+/**
+ * Notes an interrupted Run delivered with its own request, restored from its
+ * in-progress save. Its checkpoint holds them; a next Run that starts without
+ * that checkpoint (a host history rewrite, a late tool result rebuilt from
+ * host history) delivers them again.
+ */
+const interruptedRunHostNotesBySession = new Map();
 // A compaction Run uses its own summary-agent system prompt. Its opaque Cursor
 // checkpoint must never become the base for the resumed normal agent: doing so
 // suppresses OpenCode's compacted prompt/system seed and makes Cursor narrate
@@ -205,6 +218,38 @@ function retryDelayMs(error, attempt, policy) {
         return Math.min(MAX_RETRY_DELAY_MS, error.retryAfterMs);
     const ceiling = Math.min(policy.maxDelayMs, policy.baseDelayMs * 2 ** Math.max(0, attempt - 1));
     return Math.floor(Math.random() * ceiling);
+}
+/**
+ * A connectivity failure waits for the network instead of spending a retry,
+ * unless an explicit `retry.maxAttempts` caps the turn's attempts. Callers
+ * clear `stallStartedAt`, as reserving any non-stall failure would.
+ */
+function waitsForNetwork(failure, policy) {
+    return policy.maxAttempts === undefined && failure.transient && isOfflineFailure(failure);
+}
+/** An outage has no open Run for the native host's Stop listener to cancel. */
+async function waitForNetwork(outage, failure, owner) {
+    const stop = new AbortController();
+    const cancel = () => stop.abort();
+    owner.signal?.addEventListener("abort", cancel, { once: true });
+    const unsubscribe = onHostInterrupt((sessionId, reason, at) => {
+        if (reason !== "shutdown" && sessionId && sessionId === owner.stoppedWithSessionId && owner.requestedAt <= at)
+            cancel();
+    });
+    const previousStop = owner.stoppedWithSessionId ? hostInterrupts.get(owner.stoppedWithSessionId) : undefined;
+    if (owner.signal?.aborted || (previousStop && owner.requestedAt < previousStop.at))
+        cancel();
+    try {
+        if (stop.signal.aborted)
+            throw new CursorLocalCancellationError("Cursor retry cancelled");
+        await waitOffline(outage, failure, stop.signal);
+        if (stop.signal.aborted)
+            throw new CursorLocalCancellationError("Cursor retry cancelled");
+    }
+    finally {
+        owner.signal?.removeEventListener("abort", cancel);
+        unsubscribe();
+    }
 }
 function sleepForRetry(delayMs, signal) {
     if (signal?.aborted)
@@ -521,6 +566,55 @@ function rememberPromptIdentity(sessionKey, value) {
 export function promptIdentityWouldRemint(_previous, _current) {
     return false;
 }
+/** The WriteResult Cursor CLI's client returns for a saved binary write. */
+function imageWriteSuccessFrame(execId, path, bytes) {
+    return encodeMessage("AgentClientMessage", {
+        exec_client_message: {
+            id: execId,
+            write_result: { success: { path, lines_created: 0, file_size: bytes } },
+        },
+    });
+}
+/**
+ * What the model must hear about a copy of an input image: nothing when it was
+ * saved where Cursor said, otherwise where it went or that it was not saved.
+ */
+function inputImageCopyNote(metadata, error, options = {}) {
+    const savedPath = typeof metadata.path === "string" ? metadata.path : undefined;
+    if (!savedPath)
+        return undefined;
+    const requested = typeof metadata.requestedPath === "string" ? metadata.requestedPath : undefined;
+    if (error === undefined) {
+        return requested
+            ? `The copy of an attached image meant for ${requested} was saved as ${savedPath}, `
+                + `because ${requested} holds a different image.`
+            : undefined;
+    }
+    const reason = error.replace(`${IMAGE_PERMISSION_DENIED_PREFIX} `, "").trim() || "the save failed";
+    // Staging may fail even when the intended path already holds the same bytes,
+    // or before collision resolution finishes. Do not claim that path is absent.
+    if (options.stagingRefused) {
+        return `The copy of an attached image meant for ${requested ?? savedPath} was not saved (${reason}). `
+            + "The image itself is still in this conversation.";
+    }
+    return requested
+        ? `The copy of an attached image meant for ${requested} was not saved (${reason}); `
+            + `${requested} holds a different image. The image itself is still in this conversation.`
+        : `The copy of an attached image at ${savedPath} was not saved (${reason}), so that file does not exist. `
+            + "The image itself is still in this conversation.";
+}
+/** The one GenerateImage call Cursor has started and not yet completed, if exactly one. */
+function openGenerateImageCallId(session) {
+    let found;
+    for (const [callId, toolCall] of session.displayToolCalls) {
+        if (!toolCall.generate_image_tool_call)
+            continue;
+        if (found)
+            return undefined;
+        found = callId;
+    }
+    return found;
+}
 function noteRunImageCheckpoint(session, checkpoint, frame) {
     if (!session.historyImages || !session.openCodeSessionId)
         return;
@@ -529,6 +623,7 @@ function noteRunImageCheckpoint(session, checkpoint, frame) {
 /** A resumed model step cannot replay a result or follow-up absent from its checkpoint. */
 function invalidateResumeCheckpoint(session, afterFrame = lastFrameArrival(), hostResult = false) {
     session.resumeCheckpoint = undefined;
+    session.resumeCheckpointImages = undefined;
     // A later result cannot make an earlier uncheckpointed follow-up appear
     // represented in this call's host history. Only a new checkpoint clears it.
     session.checkpointRevokedByHostResult = hostResult
@@ -538,14 +633,35 @@ function invalidateResumeCheckpoint(session, afterFrame = lastFrameArrival(), ho
 }
 /** A queued checkpoint predating a delivered result still describes the old step. */
 function acceptResumeCheckpoint(session, bytes, frame) {
+    trace(`recovery: checkpoint hostSessionId=${session.openCodeSessionId} sessionId=${session.sessionId} ` +
+        `arrival=${frameArrival(frame)} after=${session.resumeCheckpointAfterFrame ?? 0} revoked=${!!session.checkpointRevoked}`);
+    // A pre-result checkpoint can arrive late over the network. Receipt order
+    // alone cannot prove it contains a result; wait for the server's completion.
+    if (session.unacknowledgedHostResults?.length) {
+        trace(`recovery: checkpoint-unacknowledged hostSessionId=${session.openCodeSessionId} sessionId=${session.sessionId} ` +
+            `results=${session.unacknowledgedHostResults.length}`);
+        return;
+    }
     const arrived = frameArrival(frame);
     if (session.resumeCheckpointAfterFrame !== undefined && arrived !== undefined
         && arrived <= session.resumeCheckpointAfterFrame)
         return;
     session.resumeCheckpoint = Uint8Array.from(bytes);
+    session.resumeCheckpointImages = session.historyImages
+        ? historyImagesHeldAt(session.historyImages, arrived)
+        : undefined;
     session.checkpointRevoked = false;
     session.checkpointRevokedByHostResult = false;
     session.resumeCheckpointAfterFrame = undefined;
+}
+/** Both the normal pump and terminal drain consume result acknowledgements. */
+function acknowledgeHostResults(session, lifecycle, frame) {
+    if (lifecycle?.kind !== "completed" || !session.unacknowledgedHostResults?.length)
+        return;
+    const arrived = frameArrival(frame);
+    session.unacknowledgedHostResults = session.unacknowledgedHostResults.filter(result => result.callId !== lifecycle.callId || (arrived !== undefined && arrived <= result.afterFrame));
+    trace(`recovery: host-result-completion hostSessionId=${session.openCodeSessionId} sessionId=${session.sessionId} ` +
+        `callId=${lifecycle.callId.replace(/\r?\n/g, "\\n")} unacknowledged=${session.unacknowledgedHostResults.length}`);
 }
 /** `resumeCheckpoint` is set only by a checkpoint this Run received. */
 function confirmRunImagesAtTurnEnd(session) {
@@ -575,31 +691,57 @@ export function createCursorLanguageModel(modelId, providerId, options) {
     const doStream = async (callOptions) => {
         const retryPolicy = resolveRetryPolicy(options.retry);
         const retryBudget = turnRetryBudget(opencodeSessionKey(callOptions), retryTurnKey(callOptions.prompt), retryTurnKey(callOptions.prompt, true));
-        try {
-            return await doStreamImpl(modelId, options, callOptions, retryPolicy, retryBudget);
-        }
-        catch (error) {
+        const requestedAt = Date.now();
+        let outage;
+        for (;;) {
             try {
-                if (callOptions.abortSignal?.aborted) {
-                    forgetRetryBudget(opencodeSessionKey(callOptions), retryBudget);
-                    throw new CursorLocalCancellationError("Cursor Run setup cancelled", error);
-                }
-                // Already shaped for the host: a context-overflow 413 must keep its
-                // status so the host compacts instead of retrying.
-                if (APICallError.isInstance(error))
-                    throw error;
-                const failure = toCursorProviderError(error, { replaySafe: true, fallback: "Cursor Run setup failed" });
-                if (!failure.replaySafe && (failure.transient || failure.origin === "transport")) {
-                    throw retrySuppressedError(failure, "while opening the Run", retryBudget.retries + 1, retryPolicy.maxAttempts ?? 14);
-                }
-                if (!failure.transient)
-                    throw failure;
-                reserveRetry(retryBudget, failure, retryPolicy.maxAttempts);
-                retryBudget.hostRetryPending = true;
-                throw hostRetryError(failure, true);
+                return await doStreamImpl(modelId, options, callOptions, retryPolicy, retryBudget, requestedAt);
             }
-            catch (terminal) {
-                throw hostFacingError(terminal);
+            catch (error) {
+                try {
+                    if (error instanceof CursorLocalCancellationError || callOptions.abortSignal?.aborted) {
+                        forgetRetryBudget(opencodeSessionKey(callOptions), retryBudget);
+                        throw new CursorLocalCancellationError("Cursor Run setup cancelled", error);
+                    }
+                    // Already shaped for the host: a context-overflow 413 must keep its
+                    // status so the host compacts instead of retrying.
+                    if (APICallError.isInstance(error))
+                        throw error;
+                    const failure = toCursorProviderError(error, { replaySafe: true, fallback: "Cursor Run setup failed" });
+                    // A laptop with no network must not burn the 10-attempt budget. OpenCode
+                    // stops the turn once this throws, so the wait stays inside the provider.
+                    if (failure.replaySafe && waitsForNetwork(failure, retryPolicy)) {
+                        outage ??= startOfflineWait();
+                        trace(`Run setup offline: code=${failure.code ?? "none"} attempt=${outage.attempts + 1} ` +
+                            `err=${failure.message} — waiting for the network`);
+                        retryBudget.stallStartedAt = undefined;
+                        try {
+                            await waitForNetwork(outage, failure, {
+                                signal: callOptions.abortSignal,
+                                stoppedWithSessionId: opencodeSessionKey(callOptions),
+                                requestedAt,
+                            });
+                        }
+                        catch (waitError) {
+                            if (waitError instanceof CursorLocalCancellationError || callOptions.abortSignal?.aborted) {
+                                forgetRetryBudget(opencodeSessionKey(callOptions), retryBudget);
+                            }
+                            throw waitError;
+                        }
+                        continue;
+                    }
+                    if (!failure.replaySafe && (failure.transient || failure.origin === "transport")) {
+                        throw retrySuppressedError(failure, "while opening the Run", retryBudget.retries + 1, retryPolicy.maxAttempts ?? 14);
+                    }
+                    if (!failure.transient)
+                        throw failure;
+                    reserveRetry(retryBudget, failure, retryPolicy.maxAttempts);
+                    retryBudget.hostRetryPending = true;
+                    throw hostRetryError(failure, true);
+                }
+                catch (terminal) {
+                    throw hostFacingError(terminal);
+                }
             }
         }
     };
@@ -633,8 +775,29 @@ function resolveRunBearerToken(options, forceRefresh = false) {
         forceRefresh,
     });
 }
-async function doStreamImpl(modelId, options, callOptions, retryPolicy, retryBudget) {
+async function doStreamImpl(modelId, options, callOptions, retryPolicy, retryBudget, requestedAt) {
     await restoreSessionState(opencodeSessionKey(callOptions), opencodeGlobalCacheDir());
+    const rewriteSessionKey = opencodeSessionKey(callOptions);
+    const rewriteTools = extractTools(callOptions);
+    const hostHistoryRewrite = rewriteSessionKey
+        && !isCompactionCall(callOptions, rewriteSessionKey)
+        && computeAllowTools(rewriteTools.length, callOptions.toolChoice)
+        // An in-session helper is isolated below and must leave the held parent,
+        // and the rebase, to the main turn.
+        && !shouldIsolateInSessionHelper(rewriteSessionKey, rewriteTools, extractToolResults(callOptions.prompt))
+        && await awaitHostHistoryRewrite(opencodeGlobalCacheDir(), rewriteSessionKey);
+    if (hostHistoryRewrite) {
+        // A held exec belongs to the history the host just replaced. Its results
+        // must seed the compacted prompt, never continue the old server Run.
+        for (const held of sessionManager.openSessionsStoppedWith(rewriteSessionKey)) {
+            // Notes its user turn carried live only on this Run; the rebased seed
+            // carries them again unless its history already holds them.
+            if (held.openCodeSessionId) {
+                appendUndeliveredHostNotes(held.openCodeSessionId, [...(held.userTurnHostNotes ?? []), ...takeHostNoteInjections(held)]);
+            }
+            sessionManager.close(held, "superseded-by-new-run");
+        }
+    }
     const withoutAnswered = await leaveOutAnsweredEarlySteers(callOptions.prompt, opencodeSessionKey(callOptions));
     if (withoutAnswered === "all")
         return { stream: answeredSteerStream() };
@@ -651,7 +814,10 @@ async function doStreamImpl(modelId, options, callOptions, retryPolicy, retryBud
     const credentialRenewable = Boolean(options.getAccessToken)
         || (!options.accessToken && options.apiKey !== undefined && isExchangeableApiKey(options.apiKey));
     let prefetchedToken;
-    const requestedAt = Date.now();
+    const recoveryStop = new AbortController();
+    const runSignal = callOptions.abortSignal
+        ? AbortSignal.any([callOptions.abortSignal, recoveryStop.signal])
+        : recoveryStop.signal;
     // pumpWithRecovery owns the complete per-turn attempt budget.  Opening a
     // replacement session here must be a single attempt; otherwise setup retry
     // loops nest inside recovery and `maxAttempts` no longer caps total Runs.
@@ -663,7 +829,7 @@ async function doStreamImpl(modelId, options, callOptions, retryPolicy, retryBud
         const token = prefetched !== undefined && !forceRefresh
             ? prefetched
             : await resolveRunBearerToken(options, forceRefresh);
-        const opened = await startSession(modelId, token, callOptions, options, { ...startOptions, requestedAt });
+        const opened = await startSession(modelId, token, { ...callOptions, abortSignal: runSignal }, options, { ...startOptions, requestedAt });
         cancelIfHostStoppedSince(opened);
         return opened;
     };
@@ -679,6 +845,13 @@ async function doStreamImpl(modelId, options, callOptions, retryPolicy, retryBud
         const steered = continuationAfterEarlySteers(prompt, opencodeSessionKey(callOptions));
         if (steered)
             ({ results: trailingToolResults, session } = steered);
+    }
+    // A restarted process cannot resume a CreatePlan interaction from its old
+    // checkpoint: it predates persistence/review and could request the write again.
+    const mayStartPlanTurn = !isCompactionCall(callOptions, opencodeSessionKey(callOptions))
+        && computeAllowTools(extractTools(callOptions).length, callOptions.toolChoice);
+    if (!session && interruptedPlanContinuation(prompt, opencodeSessionKey(callOptions), mayStartPlanTurn)) {
+        return { stream: answeredSteerStream(PLAN_INTERRUPTED_NOTICE) };
     }
     // A call that must open a Run gets its credential before it changes any
     // session state (plan mode, finishing the prior held Run), so a login that
@@ -698,11 +871,7 @@ async function doStreamImpl(modelId, options, callOptions, retryPolicy, retryBud
         // session and returns undefined so we fall through to history rebase
         // instead of pumping a connection that can no longer accept writes.
         const tailMedia = trailingToolResults.reduce((n, r) => n + (r.media?.length ?? 0), 0);
-        trace(`continuation: prompt-tail mediaParts=${tailMedia} supportsImages=${session.supportsImages} ` +
-            `roles=${describePromptTail(prompt)}`);
-        const results = session.supportsImages
-            ? await decodeTrailingToolImages(session, trailingToolResults, callOptions.abortSignal)
-            : trailingToolResults;
+        trace(`continuation: prompt-tail mediaParts=${tailMedia} roles=${describePromptTail(prompt)}`);
         const held = session;
         const cancelled = () => new CursorLocalCancellationError("Cursor continuation upload cancelled");
         const cancelUpload = () => {
@@ -716,6 +885,10 @@ async function doStreamImpl(modelId, options, callOptions, retryPolicy, retryBud
                 cancelUpload();
                 throw cancelled();
             }
+            // Like Cursor CLI, tool images reach the Run whatever AvailableModels
+            // says. Decoding is part of the upload: a Stop during it closes the Run.
+            const results = await decodeTrailingToolImages(held, trailingToolResults, signal)
+                .catch((error) => { throw signal?.aborted ? cancelled() : error; });
             session = await deliverContinuationResults(held, results, {
                 hostAgent: hostAgentFromCallOptions(callOptions),
                 sessionEditsDenied: sessionEditsDeniedFromCallOptions(callOptions),
@@ -739,6 +912,11 @@ async function doStreamImpl(modelId, options, callOptions, retryPolicy, retryBud
     }
     if (!session) {
         const sessionKey = opencodeSessionKey(callOptions);
+        // Delivery itself may have lost the held Run. Do not rebase that failed
+        // plan continuation onto a checkpoint from before the host mutation.
+        if (interruptedPlanContinuation(prompt, sessionKey, mayStartPlanTurn)) {
+            return { stream: answeredSteerStream(PLAN_INTERRUPTED_NOTICE) };
+        }
         if (!session && trailingToolResults.length > 0) {
             // True continuation (prompt ends with tool results) but the held-open Run
             // is gone (or its write path just failed). Rebase the complete OpenCode
@@ -813,6 +991,10 @@ async function doStreamImpl(modelId, options, callOptions, retryPolicy, retryBud
                 }
                 // Without TurnEnded, the checkpoint may predate completed side effects.
                 // Include their host results instead of resuming that model step.
+                const newUserTurn = liveUserTurn(prompt);
+                if (!lifecycleCall && !isCompactionCall(callOptions, sessionKey) && newUserTurn && newUserTurn.text !== ".") {
+                    clearPlanOperations(sessionKey);
+                }
                 session = await openSession(unfinishedPrior
                     ? { recovery: { kind: "rebase", reason: "unfinished-prior-run" } }
                     : undefined);
@@ -850,19 +1032,30 @@ async function doStreamImpl(modelId, options, callOptions, retryPolicy, retryBud
                         activeSession = await pumpWithRecovery({
                             initialSession: activeSession,
                             controller,
-                            abortSignal: callOptions.abortSignal,
+                            abortSignal: runSignal,
                             retryPolicy,
                             retryBudget,
                             canRebaseFromHistory: (failed) => {
-                                if (failed !== session || trailingToolResults.length === 0
-                                    || !failed.checkpointRevokedByHostResult || failed.pending.size > 0
-                                    || failed.replaySafety?.historyRebaseUnsafe
-                                    || !announcedCallsClaimed(failed.replaySafety))
-                                    return false;
                                 const completed = new Set(extractToolResults(prompt)
                                     .map(result => `${result.sessionId}:${result.execId}`));
-                                const execs = failed.replaySafety?.execs;
-                                return !!execs?.length && execs.every(exec => completed.has(`${exec.sessionId}:${exec.id}`));
+                                // The provider's own answers ran nothing on the host and have no result of their own.
+                                const coverage = historyCoverage(failed.replaySafety, completed);
+                                const reason = failed !== session ? "different-run"
+                                    : trailingToolResults.length === 0 ? "no-tool-result-tail"
+                                        : !failed.checkpointRevokedByHostResult ? "checkpoint-not-revoked-by-result"
+                                            : failed.pending.size > 0 ? "pending-execs"
+                                                : failed.replaySafety?.historyRebaseUnsafe ? "opaque-activity"
+                                                    : !appendedInjectionsInRebuild(failed, prompt) ? "opaque-activity"
+                                                        : !announcedCallsClaimed(failed.replaySafety) ? "unaccounted-display-calls"
+                                                            : !coverage.hostExecs ? "no-host-execs"
+                                                                : !coverage.complete ? "missing-host-results"
+                                                                    : "completed-tool-results";
+                                const { answers } = coverage;
+                                trace(`recovery: history-check hostSessionId=${failed.openCodeSessionId} sessionId=${failed.sessionId} ` +
+                                    `reason=${reason} execs=${coverage.hostExecs} terminalReads=${answers["terminal-read"] ?? 0} ` +
+                                    `missingReads=${answers["missing-read"] ?? 0} editHandshakes=${answers["edit-handshake"] ?? 0} ` +
+                                    `attachmentReads=${answers["task-attachment"] ?? 0} results=${completed.size} pending=${failed.pending.size}`);
+                                return reason === "completed-tool-results";
                             },
                             recover: (recovery) => openSession({ recovery }),
                             onSession: (next) => { activeSession = next; },
@@ -929,6 +1122,10 @@ async function doStreamImpl(modelId, options, callOptions, retryPolicy, retryBud
                     cancelForHostInterrupt(activeSession, "stream-cancelled");
                     return;
                 }
+                // Recovery closes the failed Run before waiting. There is then no
+                // active Run to cancel, but the consumer still owns that wait.
+                if (pumpingThisStream && activeSession.closed)
+                    recoveryStop.abort();
                 trace("ReadableStream cancel() → closeUnlessPending");
                 if (!activeSession.hostInterrupted)
                     sessionManager.closeUnlessPending(activeSession);
@@ -949,9 +1146,12 @@ export async function pumpWithRecovery(input) {
     // own resumes the latest one this turn received, and two resumed attempts
     // that streamed without saving a new checkpoint stop the automatic retries.
     let turnCheckpoint;
+    // The history images `turnCheckpoint` holds, for the Run that resumes it.
+    let turnCheckpointImages;
     let resumedAttempt = false;
     let noProgressResumes = 0;
     let openingFailure;
+    let outage;
     input.onSession?.(session);
     const reopen = async (pumpedSession, failure, checkpoint) => {
         const recovery = failure.checkpointUnusable
@@ -965,8 +1165,10 @@ export async function pumpWithRecovery(input) {
                 : { kind: "rebase", ...(input.canRebaseFromHistory?.(pumpedSession) ? { reason: "completed-tool-results" } : {}) };
         resumedAttempt = recovery.kind === "resume";
         // A rebase opens another conversation; its checkpoints start over.
-        if (!resumedAttempt)
+        if (!resumedAttempt) {
             turnCheckpoint = undefined;
+            turnCheckpointImages = undefined;
+        }
         // Host notes the failed Run never acknowledged belong to this turn.
         const unackedNotes = takeHostNoteInjections(pumpedSession);
         const unackedNoteCount = unackedNotes.reduce((count, batch) => count + batch.notes.length, 0);
@@ -982,6 +1184,8 @@ export async function pumpWithRecovery(input) {
         let next;
         try {
             next = await input.recover(recovery);
+            trace(`recovery: reopened hostSessionId=${pumpedSession.openCodeSessionId} previousSessionId=${pumpedSession.sessionId} ` +
+                `sessionId=${next.sessionId} kind=${recovery.kind} reason=${recovery.kind === "rebase" ? recovery.reason ?? "replay-safe" : "checkpoint"}`);
         }
         catch (error) {
             if (recovery.kind === "resume" && unackedNotes.length > 0 && pumpedSession.openCodeSessionId) {
@@ -995,9 +1199,16 @@ export async function pumpWithRecovery(input) {
                 ...pumpedSession.replaySafety,
                 execs: pumpedSession.replaySafety?.execs?.slice(),
                 announcedCalls: pumpedSession.replaySafety?.announcedCalls?.slice(),
+                catalogCalls: pumpedSession.replaySafety?.catalogCalls && { ...pumpedSession.replaySafety.catalogCalls },
+                appendedInjections: pumpedSession.replaySafety?.appendedInjections?.slice(),
             };
             next.userTurnHostNotes = pumpedSession.userTurnHostNotes;
             next.usageEstimate = { ...pumpedSession.usageEstimate };
+            // The resumed Run sends no images; the cut Run's are in the checkpoint it resumes.
+            if (next.historyImages && turnCheckpointImages?.length && checkpoint === turnCheckpoint) {
+                carryHistoryImages(next.historyImages, turnCheckpointImages);
+                trace(`recovery: resumed Run carries ${turnCheckpointImages.length} history image(s) its checkpoint holds sessionId=${next.sessionId}`);
+            }
             next.editToolCalls = new Map(pumpedSession.editToolCalls);
             // mirroredTodos rides along via rememberMirroredTodos (per-OpenCode-
             // session, seeded in startSession) — no handoff needed here.
@@ -1043,8 +1254,13 @@ export async function pumpWithRecovery(input) {
     };
     for (let attempt = 0;; attempt++) {
         const pumpedSession = session;
+        const pumpStartedAt = Date.now();
         const pumpOwner = Symbol("cursor-pump");
-        if (!openingFailure)
+        // A Run that opened proves the network worked; a later outage gets its own window.
+        const runOpened = !openingFailure;
+        if (runOpened)
+            outage = undefined;
+        if (runOpened)
             sessionManager.beginPump(pumpedSession, pumpOwner);
         // OpenCode 1.x stops a turn by aborting the signal, before the AI SDK cancels
         // the stream. Cancel at Cursor, as the stream's cancel() does, so Cursor ends
@@ -1071,13 +1287,27 @@ export async function pumpWithRecovery(input) {
                 openingFailure = undefined;
                 throw failure;
             }
-            await pump(pumpedSession, input.controller, {
+            const pumpPass = () => pump(pumpedSession, input.controller, {
                 textId: crypto.randomUUID(),
                 reasoningId: crypto.randomUUID(),
             }, input.abortSignal);
+            try {
+                await pumpPass();
+            }
+            catch (error) {
+                if (!await resendRefusedGzipRun(pumpedSession, error, input.abortSignal))
+                    throw error;
+                await pumpPass();
+            }
+            finally {
+                // Only the pass that opened a Run sees a gzip refusal. A Run held for tools must not keep its request.
+                pumpedSession.resendRunRequest = undefined;
+            }
             if (pumpedSession.closed && pumpedSession.pending.size === 0) {
                 forgetRetryBudget(pumpedSession.openCodeSessionId, retryBudget);
             }
+            trace(`recovery: pump-complete hostSessionId=${pumpedSession.openCodeSessionId} sessionId=${pumpedSession.sessionId} ` +
+                `attempt=${attempt} elapsedMs=${Date.now() - pumpStartedAt} closed=${pumpedSession.closed} pending=${pumpedSession.pending.size}`);
             return session;
         }
         catch (error) {
@@ -1092,14 +1322,20 @@ export async function pumpWithRecovery(input) {
                 replaySafe: error instanceof CursorProviderError ? error.replaySafe : false,
                 fallback: "Cursor Run interrupted",
             });
+            trace(`recovery: interrupted hostSessionId=${pumpedSession.openCodeSessionId} sessionId=${pumpedSession.sessionId} ` +
+                `attempt=${attempt} elapsedMs=${Date.now() - pumpStartedAt} code=${failure.code} transient=${failure.transient} ` +
+                `replaySafe=${failure.replaySafe} barrier=${failure.replayBarrier ?? "none"} ` +
+                `checkpoint=${!!pumpedSession.resumeCheckpoint} revoked=${!!pumpedSession.checkpointRevoked} pending=${pumpedSession.pending.size}`);
             // A renewable credential error may follow a checkpoint too. Retain it
             // before either recovery path so a later attempt can still resume it.
             if (pumpedSession.resumeCheckpoint) {
                 turnCheckpoint = pumpedSession.resumeCheckpoint;
+                turnCheckpointImages = pumpedSession.resumeCheckpointImages;
                 noProgressResumes = 0;
             }
             else if (pumpedSession.checkpointRevoked) {
                 turnCheckpoint = undefined;
+                turnCheckpointImages = undefined;
             }
             const checkpoint = turnCheckpoint;
             // The inherited tool barrier forbids replaying the action, but an untouched
@@ -1130,7 +1366,29 @@ export async function pumpWithRecovery(input) {
                     throw noProgressResumeError(failure, noProgressResumes);
                 }
             }
-            const historyRecovery = failure.replayBarrier === undefined && input.canRebaseFromHistory?.(pumpedSession);
+            // Output or opaque activity in the failed attempt itself stays final; echoes of the
+            // Run's own steers and notes are left to the history check.
+            const historyRecovery = (failure.replayBarrier === undefined || failure.replayBarrierEchoesOnly)
+                && input.canRebaseFromHistory?.(pumpedSession);
+            // A dropped network fails the reopen before any host answers. Wait it out
+            // when we can still resume or replay safely. A stateful turn with no
+            // checkpoint stays fail-closed: waiting does not make that replay safe.
+            const canRecoverOffline = failure.replaySafe || checkpoint !== undefined || historyRecovery;
+            if (canRecoverOffline && waitsForNetwork(failure, retryPolicy)) {
+                outage ??= startOfflineWait();
+                trace(`Run offline: sessionId=${pumpedSession.sessionId} code=${failure.code ?? "none"} ` +
+                    `attempt=${outage.attempts + 1} err=${failure.message} — waiting for the network`);
+                retryBudget.stallStartedAt = undefined;
+                sessionManager.close(pumpedSession, "remote-error", failure);
+                await waitForNetwork(outage, failure, {
+                    signal: input.abortSignal,
+                    stoppedWithSessionId: stoppedWith(pumpedSession),
+                    requestedAt: pumpedSession.requestedAt ?? pumpedSession.createdAt,
+                });
+                await reopenAttempt(pumpedSession, failure, checkpoint);
+                attempt--;
+                continue;
+            }
             if (!failure.replaySafe && !checkpoint && !historyRecovery) {
                 // Cursor CLI sends the same action again. Shown output keeps the
                 // provider from doing so; the host can, unless a side effect would repeat.
@@ -1140,6 +1398,7 @@ export async function pumpWithRecovery(input) {
                     retryBudget.hostRetryPending = true;
                     throw hostRetryError(failure);
                 }
+                trace(`recovery: suppressed hostSessionId=${pumpedSession.openCodeSessionId} sessionId=${pumpedSession.sessionId}`);
                 throw retrySuppressedError(failure, "after visible output or stateful server activity", attempt + 1, maxRecoveries + 1);
             }
             reserveRetry(retryBudget, failure, retryPolicy.maxAttempts);
@@ -1167,6 +1426,25 @@ export async function pumpWithRecovery(input) {
         }
     }
 }
+/** Cursor refused a gzip Run before acting on it: send the same request once more, now uncompressed. */
+async function resendRefusedGzipRun(session, error, signal) {
+    if (!(error instanceof CursorProviderError) || !error.replaySafe)
+        return false;
+    if (!session.resendRunRequest || !session.stream.compressionRejected?.())
+        return false;
+    if (session.closed || session.hostInterrupted || signal?.aborted)
+        return false;
+    trace(`Run compression: sessionId=${session.sessionId} refused before Cursor acted on it; resending once uncompressed`);
+    // A heartbeat on the refused stream would fail and close the session while the resend uploads.
+    session.heartbeatCancel?.();
+    await session.resendRunRequest(signal);
+    // As for a new Run, Cursor's silence is timed from the end of the upload.
+    sessionManager.recordSemanticProgress(session);
+    // The refused pass did nothing; the resent Run counts as the first, which may still reseed a checkpoint.
+    if (session.cacheDiagnostics)
+        session.cacheDiagnostics.pumpPasses--;
+    return true;
+}
 const heartbeatWritePendingBySession = new WeakMap();
 /** Runs whose first current category breakdown was checked for missing rules. */
 const rulesCategoryChecked = new WeakSet();
@@ -1190,6 +1468,9 @@ export function attachSessionHeartbeat(session) {
     const generation = bumpHeartbeatGeneration(session);
     const interval = setInterval(() => {
         if (session.closed || !isCurrentHeartbeatGeneration(session, generation))
+            return;
+        // Cursor ended the stream; its terminal event, not a failed write, decides the Run.
+        if (session.stream.isClosed())
             return;
         if (heartbeatWritePendingBySession.get(session)) {
             trace(`heartbeat skipped: prior heartbeat write is still pending sessionId=${session.sessionId}`);
@@ -1243,6 +1524,7 @@ const execHeartbeatCount = new WeakMap();
 /** A Cursor exec the host still runs, as opposed to an interaction answer or a display-only mirror. */
 function isOwedCursorExec(pending) {
     return !pending.bridged
+        && !pending.answered
         && pending.resultField !== ASK_QUESTION_RESULT_FIELD
         && pending.resultField !== SWITCH_MODE_RESULT_FIELD
         && pending.resultField !== CREATE_PLAN_RESULT_FIELD;
@@ -1282,10 +1564,22 @@ async function writeExecHeartbeats(session, generation) {
         execHeartbeatsPendingBySession.delete(session);
     }
 }
+onCopyStateReplaced((sessionKey) => {
+    postCompactionRebaseBySession.delete(sessionKey);
+    undeliveredHostNotesBySession.delete(sessionKey);
+    interruptedRunHostNotesBySession.delete(sessionKey);
+    steerAnsweringRuns.delete(sessionKey);
+    promptIdentityBySession.delete(sessionKey);
+    toolCatalogBySession.delete(sessionKey);
+    mirroredTodosBySession.delete(sessionKey);
+});
 /** Restore receipts before matching a promoted copy, which may need no Run at all. */
 async function restoreSessionState(sessionKey, cacheDir) {
     if (sessionKey) {
-        const restored = await hydrateConversationState(cacheDir, sessionKey).catch((error) => {
+        // A Run this copy still holds for the session owns its live conversation state.
+        const ownsRun = !!sessionManager.findOpenByOpenCodeSessionId(sessionKey)
+            || sessionManager.openSessionsStoppedWith(sessionKey).length > 0;
+        const restored = ownsRun ? undefined : await hydrateConversationState(cacheDir, sessionKey).catch((error) => {
             trace(`conversation persistence: restore failed sessionKey=${sessionKey}: ${String(error)}`);
             return undefined;
         });
@@ -1300,6 +1594,8 @@ async function restoreSessionState(sessionKey, cacheDir) {
         }
         if (restored?.postCompactionRebase)
             rememberPostCompactionRebase(sessionKey);
+        if (restored)
+            restoreInterruptedRunHostNotes(sessionKey, restored.runHostNote, restored.hostNote);
         restorePersistedHostNotes(sessionKey, restored?.hostNote);
         if (restored?.toolCatalog.length)
             restoreTurnToolCatalog(sessionKey, restored.toolCatalog);
@@ -1337,10 +1633,26 @@ async function openRunWithRequest(token, options, request, operation, owner) {
     try {
         if (cancelled)
             throw new CursorLocalCancellationError(`Cursor ${operation} cancelled`);
+        await compressRunRequestAhead(request);
+        if (cancelled)
+            throw new CursorLocalCancellationError(`Cursor ${operation} cancelled`);
         stream = await bidiRunStream(token, options);
         if (cancelled)
             throw new CursorLocalCancellationError(`Cursor ${operation} cancelled`);
-        await writeWithBackpressure(stream, request, operation);
+        try {
+            await writeWithBackpressure(stream, request, operation);
+        }
+        catch (error) {
+            // A server without gzip can refuse before reading the body, which fails a large upload.
+            if (cancelled || !stream.compressionRejected?.())
+                throw error;
+            trace(`Run compression: ${operation} refused while uploading; sending it once more uncompressed`);
+            stream.destroy();
+            stream = await bidiRunStream(token, options);
+            if (cancelled)
+                throw new CursorLocalCancellationError(`Cursor ${operation} cancelled`);
+            await writeWithBackpressure(stream, request, operation);
+        }
         if (cancelled)
             throw new CursorLocalCancellationError(`Cursor ${operation} cancelled`);
         return stream;
@@ -1418,9 +1730,11 @@ async function startSession(modelId, token, callOptions, options, startOptions) 
     // (baseline hash is the epoch baseline, not a per-turn host hash).
     let frozenSystemPromptHash;
     const resetState = resolveTurnConversationReset({
-        sessionKey,
+        // Title/helpers cannot consume the durable main conversation's rebase.
+        sessionKey: ephemeralRun ? undefined : sessionKey,
         isCompaction,
-        historyRewrite: providerOptions?.[CURSOR_HISTORY_REWRITE_OPTION] === true,
+        historyRewrite: !ephemeralRun && (providerOptions?.[CURSOR_HISTORY_REWRITE_OPTION] === true
+            || (!!sessionKey && await awaitHostHistoryRewrite(cacheDir, sessionKey))),
     });
     // Cursor could not restore the stored checkpoint (missing blobs) before this
     // turn produced anything: reseed from the full host history as a new turn.
@@ -1447,8 +1761,11 @@ async function startSession(modelId, token, callOptions, options, startOptions) 
             reset: resetState.reset || recovery?.kind === "rebase" || !!foreignHistory,
             ephemeral: ephemeralRun,
         });
-    if (sessionKey && !ephemeralRun)
+    if (sessionKey && !ephemeralRun) {
+        if (bound.reset)
+            acknowledgeHostHistoryRewrite(cacheDir, sessionKey);
         trackTurnProvenance(sessionKey, bound.conversationId);
+    }
     let conversationState = ephemeralRun
         ? undefined
         : resuming
@@ -1545,7 +1862,7 @@ async function startSession(modelId, token, callOptions, options, startOptions) 
         liveTurnStart: liveTurn?.start,
         preserveTrailingUser: recovery?.kind === "rebase" && !checkpointUnusable && !unfinishedPriorRun,
         // A foreign-history rebase replays the other model's tool results too.
-        toolResults: isCompaction || foreignHistory || checkpointUnusable || unfinishedPriorRun || completedResultsRebase
+        toolResults: resetState.reset || foreignHistory || checkpointUnusable || unfinishedPriorRun || completedResultsRebase
             ? "all" : (recovery?.kind === "rebase" ? "trailing" : "omit"),
     });
     const userTurnHostNotes = prepareUserTurnHostNotes({
@@ -1657,31 +1974,20 @@ async function startSession(modelId, token, callOptions, options, startOptions) 
         : undefined;
     const hintMaxMode = !!(providerOptions?.maxMode ?? false);
     const modelInfo = _availableModels?.find((m) => m.id === cursorModelId);
-    const supportsImages = resolveCursorModelSupportsImages(cursorModelId, modelInfo?.supportsImages);
-    if (!resuming) {
-        const liveMessages = liveTurn ? prompt.slice(liveTurn.start).filter((message) => message.role === "user") : [lastUser];
-        for (const message of liveMessages) {
-            assertCursorUserImageSupport(message, supportsImages, cursorModelId);
-        }
-    }
     // A Run without a checkpoint (new, reset, rebased or compacted conversation) sends every image.
     const heldImages = sessionKey && !ephemeralRun && conversationState
         ? heldHistoryImageHashes(sessionKey, conversationId, conversationState)
         : undefined;
     const imageExtraction = resuming
-        ? { images: [], hashes: [], candidateCount: 0, duplicateCount: 0, userImageCount: 0, omittedCount: 0 }
+        ? { images: [], hashes: [], duplicateCount: 0, omittedCount: 0 }
         : await extractCursorPromptImages(prompt, lastUser, {
-            supportsImages,
             seenHistoryHashes: heldImages,
             signal: callOptions.abortSignal,
         });
     if (imageExtraction.omittedCount) {
-        userText = appendMidConversationMessage(userText, `[${imageExtraction.omittedCount} historical tool image(s) could not be decoded; their pixels are unavailable.]`);
-        trace(`image input: omitted ${imageExtraction.omittedCount} unreadable tool image(s)`);
-    }
-    if (!supportsImages && imageExtraction.candidateCount > 0) {
-        trace(`image input: dropped ${imageExtraction.candidateCount} tool/assistant history image(s); ` +
-            `model=${cursorModelId} does not support images`);
+        userText = appendMidConversationMessage(userText, `[${imageExtraction.omittedCount} earlier image(s) could not be attached: unreadable, or past the ` +
+            `${MAX_CURSOR_IMAGE_INPUT_BYTES / 1024 / 1024} MiB image budget. Their pixels are unavailable.]`);
+        trace(`image input: omitted ${imageExtraction.omittedCount} unreadable or over-budget earlier image(s)`);
     }
     if (imageExtraction.duplicateCount > 0) {
         trace(`image input: skipped ${imageExtraction.duplicateCount} previously sent history image(s)`);
@@ -1815,6 +2121,9 @@ async function startSession(modelId, token, callOptions, options, startOptions) 
     trace(`hash requestContext sha256=${requestContextHash}`);
     if (conversationState)
         trace(`hash checkpoint sha256=${sha(conversationState)}`);
+    // Cursor may send checkpoints while the opening upload waits for drain.
+    // Capture the receipt boundary before opening, rather than after the wait.
+    const requestAfterFrame = lastFrameArrival();
     const stream = await openRunWithRequest(token, {
         baseURL: agentBaseUrl, headers: options.headers,
     }, reqBytes, "initial Run request", {
@@ -1827,7 +2136,7 @@ async function startSession(modelId, token, callOptions, options, startOptions) 
         recordSessionEditsGuidance(conversationId, sessionEditsDenied);
     const historyImages = sessionKey && !ephemeralRun ? runHistoryImages(heldImages) : undefined;
     if (historyImages)
-        noteHistoryImagesSent(historyImages, imageExtraction.hashes, lastFrameArrival());
+        noteHistoryImagesSent(historyImages, imageExtraction.hashes, requestAfterFrame);
     const hostToolDialect = hostToolDialectFromTools(tools, options.defaultDialect);
     trace(`host tool dialect: filePathKey=${hostToolDialect.filePathKey} shellTool=${hostToolDialect.shellTool} ` +
         `skillArgKey=${hostToolDialect.skillArgKey} tools=[${tools.map((t) => t.name).join(",")}]`);
@@ -1847,6 +2156,7 @@ async function startSession(modelId, token, callOptions, options, startOptions) 
         ...(historyImages ? { historyImages } : {}),
         tokenDetails: priorTokenDetails,
         tokenDetailsFresh: false,
+        ...(images.length > 0 ? { occupancyMediaAfterFrame: requestAfterFrame } : {}),
         cacheDiagnostics: {
             sessionKey,
             conversationId,
@@ -1881,7 +2191,6 @@ async function startSession(modelId, token, callOptions, options, startOptions) 
         postCompactionRebase: isCompaction,
         toolCatalog: sessionKey ? snapshotToolCatalog(sessionKey) : structuredClone(tools),
         knownMcpServers,
-        supportsImages,
         stream,
         frames: stream.frames()[Symbol.asyncIterator](),
         pending: new Map(),
@@ -1932,6 +2241,23 @@ async function startSession(modelId, token, callOptions, options, startOptions) 
         }
         throw new CursorProtocolError("Cannot reopen a closed Cursor session");
     };
+    const replaceRun = async (bearer, request, operation, nextRunId, signal) => {
+        const next = await openRunWithRequest(bearer, {
+            baseURL: agentBaseUrl, headers: options.headers,
+        }, request, operation, {
+            signal,
+            stoppedWithSessionId: session.stoppedWithSessionId ?? session.openCodeSessionId,
+            requestedAt: session.requestedAt ?? session.createdAt,
+        });
+        abortIfNeeded(signal, next);
+        session.heartbeatCancel?.();
+        await waitForStreamWrites(session.stream);
+        abortIfNeeded(signal, next);
+        sessionManager.replaceStream(session, next, nextRunId);
+        attachSessionHeartbeat(session);
+        session.resendRunRequest = (resendSignal) => replaceRun(bearer, request, operation, nextRunId, resendSignal);
+    };
+    session.resendRunRequest = (signal) => replaceRun(token, reqBytes, "initial Run request", runId, signal);
     session.reopenWithUserMessage = async (text, signal) => {
         abortIfNeeded(signal);
         const freshToken = await resolveRunBearerToken(options);
@@ -1952,19 +2278,7 @@ async function startSession(modelId, token, callOptions, options, startOptions) 
             action: "user",
             mode: cursorAgentModeWireValue(getActiveCursorMode(session.openCodeSessionId)),
         });
-        const next = await openRunWithRequest(freshToken, {
-            baseURL: agentBaseUrl, headers: options.headers,
-        }, reqBytes, "progress-only continuation Run", {
-            signal,
-            stoppedWithSessionId: session.stoppedWithSessionId ?? session.openCodeSessionId,
-            requestedAt: session.requestedAt ?? session.createdAt,
-        });
-        abortIfNeeded(signal, next);
-        session.heartbeatCancel?.();
-        await waitForStreamWrites(session.stream);
-        abortIfNeeded(signal, next);
-        sessionManager.replaceStream(session, next, nextRunId);
-        attachSessionHeartbeat(session);
+        await replaceRun(freshToken, reqBytes, "progress-only continuation Run", nextRunId, signal);
     };
     callOptions.abortSignal?.addEventListener("abort", () => {
         // Abort after tool-calls is normal — preserve pending sessions.
@@ -2105,6 +2419,29 @@ export async function preparePriorSessionForFreshTurn(openCodeSessionId, opts) {
         if (prior.closed)
             return "settled-only";
     }
+    // A real new user turn abandons the prior review. A historical writer
+    // result can queue that review here without opening another host call;
+    // settle its still-owed interaction before draining the old Run.
+    const queuedPlan = prior.queuedCreatePlanAction;
+    if (queuedPlan?.kind === "review") {
+        let beforeReply = lastFrameArrival();
+        const written = await writeWithBackpressure(prior.stream, buildCreatePlanInteractionReply(queuedPlan.interactionId, {
+            error: { error: FRESH_TURN_PENDING_CANCEL_REASON }, plan_uri: "",
+        }), "create_plan review abandoned for new user turn", () => {
+            beforeReply = lastFrameArrival();
+            return !prior.closed;
+        });
+        if (!written)
+            return "settled-only";
+        invalidateResumeCheckpoint(prior, beforeReply, true);
+        const unacknowledged = prior.unacknowledgedHostResults ??= [];
+        unacknowledged.push({ callId: queuedPlan.createPlanToolCallId, afterFrame: beforeReply });
+        prior.queuedCreatePlanAction = undefined;
+        prior.planReviewDeclined = true;
+        if (queuedPlan.receiptHostCallId)
+            clearPlanOperation(prior.openCodeSessionId, queuedPlan.receiptHostCallId);
+        await persistPlanOperations(prior);
+    }
     const cancelled = await cancelPendingExecsForFreshTurn(prior);
     if (cancelled > 0) {
         trace(`fresh turn: cancelled ${cancelled} pending exec(s) on prior session ${prior.sessionId} ` +
@@ -2153,7 +2490,7 @@ export async function cancelPendingExecsForFreshTurn(session) {
         return 0;
     const synthetic = [];
     for (const [execId, pending] of session.pending.entries()) {
-        if (pending.bridged || pending.aborted)
+        if (pending.bridged || pending.aborted || pending.answered)
             continue;
         if (pending.state !== "pending")
             continue;
@@ -2188,6 +2525,12 @@ function applyExecControl(session, control, where) {
     const id = control.abort?.id;
     if (typeof id !== "number") {
         trace(`exec control: unknown message ${JSON.stringify(Object.keys(control))} (${where}) sessionId=${session.sessionId}`);
+        return;
+    }
+    // A held exec never reached the host, so no late result will settle it.
+    if (dropHeldExec(session.stepOrder, id)) {
+        sessionManager.resolve(session.sessionId, id);
+        trace(`exec control: Cursor aborted held execId=${id} (${where}) sessionId=${session.sessionId} — it will not run`);
         return;
     }
     const pending = session.pending.get(id);
@@ -2321,7 +2664,9 @@ async function readHeldFrames(session, frames) {
         if (kvReply) {
             try {
                 await writeWithBackpressure(session.stream, kvReply.reply, `held KV ${kvReply.kind}_blob reply id=${kvReply.id}`);
-                trace(`held Run: answered KV ${kvReply.kind} id=${kvReply.id} sessionId=${session.sessionId}`);
+                const missed = kvReply.kind === "get" && !kvReply.found && !kvReply.echoed;
+                (missed ? trace : traceVerbose)(`held Run: answered KV ${kvReply.kind} id=${kvReply.id} found=${kvReply.found} ` +
+                    `echoed=${!!kvReply.echoed} sessionId=${session.sessionId}`);
             }
             catch (error) {
                 trace(`held Run: KV reply failed sessionId=${session.sessionId}: ${error.message}`);
@@ -2344,7 +2689,7 @@ async function readHeldFrames(session, frames) {
         // pump fails the Run on it), waits for the next pump in order.
         ;
         (session.heldFrames ??= []).push(frame);
-        trace(`held Run: queued a frame for the next pump queued=${session.heldFrames.length} sessionId=${session.sessionId}`);
+        traceVerbose(`held Run: queued a frame for the next pump queued=${session.heldFrames.length} sessionId=${session.sessionId}`);
         if (frame.flags & 0x02)
             return;
     }
@@ -2364,7 +2709,7 @@ function persistRunInProgress(session, where) {
         postCompactionRebase: session.postCompactionRebase,
         hostAgent: session.hostAgent,
         systemPromptHash: session.stableSystemPromptHash,
-        hostNote: encodePersistedHostNotes(undeliveredHostNotes(sessionKey)),
+        ...heldRunHostNotes(session, sessionKey),
         runInProgress: true,
     }).catch((error) => {
         trace(`conversation persistence: ${where} save failed sessionKey=${sessionKey}: ${String(error)}`);
@@ -2372,6 +2717,29 @@ function persistRunInProgress(session, where) {
     runSavesInFlight.add(save);
     void save.finally(() => runSavesInFlight.delete(save));
     return save;
+}
+/** Unlike a best-effort cache save, a plan receipt must reach disk before mutation. */
+async function persistPlanOperations(session) {
+    if (!session.openCodeSessionId || !session.cacheDir)
+        return;
+    const assertOwner = () => {
+        if (!isActiveConversationBinding(session.openCodeSessionId, session.conversationId)) {
+            throw new CursorLocalCancellationError("CreatePlan conversation was superseded");
+        }
+    };
+    assertOwner();
+    await persistConversationState(session.cacheDir, {
+        sessionKey: session.openCodeSessionId,
+        conversationId: session.conversationId,
+        requestContext: session.requestContext,
+        toolCatalog: session.toolCatalog,
+        postCompactionRebase: session.postCompactionRebase,
+        hostAgent: session.hostAgent,
+        systemPromptHash: session.stableSystemPromptHash,
+        ...heldRunHostNotes(session, session.openCodeSessionId),
+        runInProgress: true,
+    });
+    assertOwner();
 }
 /** How long a Run must wait on host tools before its state is saved for a restart. */
 export const HELD_RUN_SAVE_DELAY_MS = 1_000;
@@ -2627,6 +2995,9 @@ export async function drainSessionUntilTurnEnded(session, opts) {
                 continue;
             }
             const iu = asm.interaction_update;
+            if (iu?.tool_call_completed) {
+                acknowledgeHostResults(session, analyzeReplayFrame(payload, { interactionUpdate: iu }).toolLifecycle, frame);
+            }
             const kv = asm.kv_server_message;
             const esm = asm.exec_server_message;
             const interactionQuery = asm.interaction_query;
@@ -2643,12 +3014,17 @@ export async function drainSessionUntilTurnEnded(session, opts) {
                     cancellationCheckpoint = true;
                     if (session.cacheDiagnostics)
                         session.cacheDiagnostics.checkpointUpdates++;
-                    setCheckpoint(session.conversationId, bytes);
+                    const observation = checkpointObservation(session, frame);
+                    setCheckpoint(session.conversationId, bytes, observation);
                     noteCheckpoint(session.openCodeSessionId, bytes);
                     acceptResumeCheckpoint(session, bytes, frame);
                     markEarlySteersCheckpointed(session.openCodeSessionId, session.sessionId);
+                    forgetCheckpointedHostNotes(session);
                     noteRunImageCheckpoint(session, bytes, frame);
-                    const tokenDetails = decodeConversationTokenDetails(bytes);
+                    const rawTokenDetails = decodeConversationTokenDetails(bytes);
+                    if (observation.bypass && rawTokenDetails)
+                        session.occupancyMediaAfterFrame = undefined;
+                    const tokenDetails = rawTokenDetails?.usedTokens === 0 ? rawTokenDetails : checkpointTokenDetails(session.conversationId, bytes);
                     if (tokenDetails && !(cancelling && tokenDetails.usedTokens === 0
                         && (session.tokenDetails?.usedTokens ?? 0) > 0)) {
                         if (session.cacheDiagnostics)
@@ -2733,6 +3109,10 @@ export async function drainSessionUntilTurnEnded(session, opts) {
                 outcome = "busy";
                 break;
             }
+            if (iu?.step_started && session.cacheDiagnostics)
+                session.cacheDiagnostics.stepStarts++;
+            if (iu?.step_completed && session.cacheDiagnostics)
+                session.cacheDiagnostics.stepCompletes++;
             if (iu?.heartbeat || iu?.step_started || iu?.step_completed)
                 continue;
             if (iu?.tool_call_completed) {
@@ -2981,6 +3361,8 @@ delivery = {}) {
         let endTurnAfterDelivery = false;
         let deliveredCreatePlan;
         let deliveredImageHashes = [];
+        let resultHasImages = false;
+        let completedPlanOperation;
         if (pending.resultField === ASK_QUESTION_RESULT_FIELD) {
             // A bridged Cursor AskQuestion. The host tool result carries the user's
             // choices; translate them back into the Cursor result the interaction is
@@ -3017,21 +3399,124 @@ delivery = {}) {
             }
         }
         else if (pending.resultField === CREATE_PLAN_RESULT_FIELD) {
-            try {
-                const built = buildCreatePlanContinuationFrame(pending, reviewResult, delivery.hostAgent, delivery.sessionEditsDenied, delivery.sessionPermissionsUnavailable);
-                frames = [built.frame];
-                deliveredCreatePlan = built;
+            const metadata = pending.resultMetadata ?? {};
+            if (metadata.createPlanPhase === "write") {
+                // Host persistence finished. Success is not execution approval — queue
+                // the review or acknowledgment. Do not send a write_result to Cursor.
+                try {
+                    const interactionId = metadata.interactionId;
+                    const planUri = metadata.planUri;
+                    const planPath = typeof metadata.planPath === "string" ? metadata.planPath.trim() : "";
+                    if (typeof interactionId !== "number" || typeof planUri !== "string" || !planUri.trim()) {
+                        throw new CursorProtocolError("Bridged CreatePlan write lost its interaction identity");
+                    }
+                    const receiptHostCallId = `cursor_${session.sessionId}_${r.execId}`;
+                    if (reviewResult.error !== undefined || r.interrupted || r.refusal) {
+                        completedPlanOperation = receiptHostCallId;
+                        frames = [buildCreatePlanInteractionReply(interactionId, {
+                                error: {
+                                    error: reviewResult.error?.trim()
+                                        || (typeof r.refusal === "string" ? r.refusal : "")
+                                        || "Failed to write plan file",
+                                },
+                                plan_uri: "",
+                            })];
+                        deliveredCreatePlan = { approved: false, emulated: false, endTurn: true };
+                    }
+                    else {
+                        const afterWrite = metadata.createPlanAfterWrite;
+                        const planReview = typeof metadata.planReview === "string" ? metadata.planReview : undefined;
+                        const markdown = typeof metadata.planMarkdown === "string" ? metadata.planMarkdown : undefined;
+                        if (afterWrite === "review") {
+                            const reviewTool = metadata.createPlanReviewToolName === "plan_exit" ? "plan_exit" : "question";
+                            session.queuedCreatePlanAction = {
+                                kind: "review",
+                                interactionId,
+                                ...(typeof metadata.createPlanToolCallId === "string"
+                                    ? { createPlanToolCallId: metadata.createPlanToolCallId }
+                                    : {}),
+                                bridgeKind: typeof metadata.createPlanBridgeKind === "string"
+                                    ? metadata.createPlanBridgeKind : "approve",
+                                receiptHostCallId,
+                                planUri,
+                                planPath,
+                                ...(markdown ? { markdown } : {}),
+                                ...(planReview ? { planReview } : {}),
+                                toolName: reviewTool,
+                                ...(reviewTool === "question"
+                                    ? {
+                                        questionInput: createPlanApprovalQuestionInput(planPath),
+                                        createPlanQuestion: createPlanApprovalQuestion(planPath),
+                                    }
+                                    : {}),
+                            };
+                            frames = [];
+                            updatePlanOperationConsumed(session.openCodeSessionId, receiptHostCallId, `${r.sessionId}:${r.execId}`, "review");
+                            await persistPlanOperations(session);
+                            trace(`create_plan: write succeeded execId=${r.execId}; queued ${reviewTool} review ` +
+                                `interactionId=${interactionId}`);
+                        }
+                        else if (afterWrite === "hold") {
+                            completedPlanOperation = receiptHostCallId;
+                            session.queuedCreatePlanAction = {
+                                kind: "hold",
+                                interactionId,
+                                bridgeKind: "hold",
+                                planUri,
+                                planPath,
+                                ...(planReview ? { planReview } : {}),
+                            };
+                            frames = [buildCreatePlanInteractionReply(interactionId, {
+                                    error: { error: createPlanSessionEditsDeniedReason(planPath) },
+                                    plan_uri: "",
+                                })];
+                            deliveredCreatePlan = { approved: false, emulated: false, endTurn: true };
+                        }
+                        else {
+                            completedPlanOperation = receiptHostCallId;
+                            frames = [buildCreatePlanInteractionReply(interactionId, {
+                                    success: {},
+                                    plan_uri: planUri,
+                                })];
+                            deliveredCreatePlan = { approved: false, emulated: false, endTurn: false };
+                        }
+                    }
+                }
+                catch (error) {
+                    trace(`continuation: create_plan write encode FAILED execId=${r.execId} err=${error.message}`);
+                    sessionManager.close(session, "result-write-failed");
+                    return undefined;
+                }
             }
-            catch (error) {
-                trace(`continuation: create_plan encode FAILED execId=${r.execId} err=${error.message}`);
-                sessionManager.close(session, "result-write-failed");
-                return undefined;
+            else {
+                try {
+                    const built = buildCreatePlanContinuationFrame(pending, reviewResult, delivery.hostAgent, delivery.sessionEditsDenied, delivery.sessionPermissionsUnavailable);
+                    frames = [built.frame];
+                    deliveredCreatePlan = built;
+                    completedPlanOperation = typeof metadata.planOperationHostCallId === "string"
+                        ? metadata.planOperationHostCallId : undefined;
+                }
+                catch (error) {
+                    trace(`continuation: create_plan encode FAILED execId=${r.execId} err=${error.message}`);
+                    sessionManager.close(session, "result-write-failed");
+                    return undefined;
+                }
             }
         }
         else if (pending.aborted) {
             if (isShellResultField(pending.resultField))
                 consumeCursorShellResult(r.toolCallId, r.output);
             trace(`continuation: dropped the result of execId=${r.execId}, which Cursor aborted`);
+        }
+        else if (pending.answered) {
+            trace(`continuation: Cursor already has the reply for execId=${r.execId} tool=${pending.toolName}; ` +
+                `writing nothing failed=${r.error !== undefined}`);
+            // Only input-image copies are answered. Cursor was told the copy was saved
+            // before the host asked, at the path the model knows; say when it was not
+            // saved, or was saved under another name.
+            const note = inputImageCopyNote(pending.resultMetadata ?? {}, r.error);
+            if (note)
+                stepNotes.push(note);
         }
         else if (!pending.bridged) {
             try {
@@ -3099,22 +3584,7 @@ delivery = {}) {
                     && !r.error
                     && pending.toolName === CURSOR_IMAGE_SAVE_TOOL
                     && pending.resultField === "write_result") {
-                    frames = [encodeMessage("AgentClientMessage", {
-                            exec_client_message: {
-                                id: r.execId,
-                                write_result: {
-                                    success: {
-                                        path: typeof pending.resultMetadata?.path === "string"
-                                            ? pending.resultMetadata.path
-                                            : "",
-                                        lines_created: 0,
-                                        file_size: typeof pending.resultMetadata?.imageByteLength === "number"
-                                            ? pending.resultMetadata.imageByteLength
-                                            : 0,
-                                    },
-                                },
-                            },
-                        })];
+                    frames = [imageWriteSuccessFrame(r.execId, typeof pending.resultMetadata?.path === "string" ? pending.resultMetadata.path : "", typeof pending.resultMetadata?.imageByteLength === "number" ? pending.resultMetadata.imageByteLength : 0)];
                 }
                 if (frames.length === 0) {
                     const directPlanStage = pending.toolName === CURSOR_PLAN_STAGE_TOOL;
@@ -3154,6 +3624,7 @@ delivery = {}) {
                         images,
                     });
                     if (images.length > 0) {
+                        resultHasImages = true;
                         deliveredImageHashes = r.imageHashes?.slice(0, images.length) ?? [];
                         trace(`continuation: ${images.length} tool-result image(s) on ${pending.resultField} execId=${r.execId}`);
                     }
@@ -3177,9 +3648,12 @@ delivery = {}) {
         // including time spent queued behind another write, but admit those that
         // arrive while that frame drains. Earlier result frames are incomplete.
         let beforeResultWrite = lastFrameArrival();
+        const replyDeferred = pending.resultField === CREATE_PLAN_RESULT_FIELD
+            && pending.resultMetadata?.createPlanPhase === "write"
+            && session.queuedCreatePlanAction?.kind === "review";
         const outcome = await sessionManager.deliverClaim(claim, frames, () => {
             beforeResultWrite = lastFrameArrival();
-        });
+        }, { replyDeferred });
         if (outcome.kind !== "delivered") {
             trace(`continuation: delivery stopped execId=${r.execId} reason=${outcome.reason}`);
             if (outcome.kind === "duplicate")
@@ -3187,10 +3661,40 @@ delivery = {}) {
             return undefined;
         }
         deliveredResults++;
+        if (noteExecResult(session.stepOrder, r.execId, r.refusal || r.interrupted ? "refused" : "done")) {
+            trace(`step-order: result execId=${r.execId} refused=${!!(r.refusal || r.interrupted)} held=${session.stepOrder?.held.length ?? 0}`);
+        }
+        if (resultHasImages)
+            session.occupancyMediaAfterFrame = beforeResultWrite;
+        if (completedPlanOperation) {
+            clearPlanOperation(session.openCodeSessionId, completedPlanOperation);
+            await persistPlanOperations(session);
+        }
         if (endTurnAfterDelivery)
             session.planReviewDeclined = true;
-        if (outcome.framesWritten > 0 || (pending.bridged && !pending.aborted)) {
+        if (outcome.framesWritten > 0 || replyDeferred || (pending.bridged && !pending.aborted)) {
             invalidateResumeCheckpoint(session, beforeResultWrite, true);
+            // A display-only mirror sends nothing to Cursor: its server completion
+            // already arrived before the host call. Only a real reply needs an ack.
+            if (outcome.framesWritten > 0) {
+                const exec = session.replaySafety?.execs?.find(exec => exec.sessionId === session.sessionId && exec.id === r.execId);
+                const metadata = pending.resultMetadata;
+                const interactionCallId = pending.resultField === ASK_QUESTION_RESULT_FIELD ? metadata?.askQuestionToolCallId
+                    : pending.resultField === SWITCH_MODE_RESULT_FIELD ? metadata?.switchModeToolCallId
+                        : pending.resultField === CREATE_PLAN_RESULT_FIELD ? metadata?.createPlanToolCallId
+                            : undefined;
+                const imageSave = pending.toolName === CURSOR_IMAGE_SAVE_TOOL && pending.resultField === "write_result";
+                const generateImageCallId = imageSave ? metadata?.generateImageCallId : undefined;
+                const callId = typeof interactionCallId === "string" && interactionCallId.length > 0
+                    ? interactionCallId
+                    : exec?.callId ?? (typeof generateImageCallId === "string" ? generateImageCallId : undefined);
+                if (!callId) {
+                    trace(`recovery: uncorrelated result; no completion can acknowledge it, so this Run's later ` +
+                        `checkpoints stay refused execId=${r.execId} tool=${pending.toolName}`);
+                }
+                const unacknowledged = session.unacknowledgedHostResults ??= [];
+                unacknowledged.push({ callId, afterFrame: beforeResultWrite });
+            }
         }
         if (session.historyImages)
             noteHistoryImagesSent(session.historyImages, deliveredImageHashes, lastFrameArrival());
@@ -3228,7 +3732,7 @@ delivery = {}) {
                 trace(`continuation: mirrored todoread snapshot items=${snapshot.length}`);
             }
         }
-        if (pending.aborted)
+        if (pending.aborted || pending.answered)
             continue;
         session.usageEstimate.inputTokens += estimateTokens(r.output.length);
         if (pending.bridged) {
@@ -3242,6 +3746,7 @@ delivery = {}) {
                 : pending.resultField === CREATE_PLAN_RESULT_FIELD
                     ? "create_plan answer"
                     : "exec result";
+        trace(`recovery: host-result-delivered hostSessionId=${session.openCodeSessionId} sessionId=${session.sessionId} execId=${r.execId}`);
         trace(`continuation: wrote ${resultKind} execId=${r.execId} field=${pending.resultField} ` +
             `frames=${outcome.framesWritten} outLen=${r.output.length}`);
     }
@@ -3288,6 +3793,14 @@ delivery = {}) {
             // Every result of this step was already delivered, and its notes with it.
             trace(`continuation: host notes belong to an already delivered step; not injected again count=${stepNotes.length}`);
         }
+        else if (session.stream.isClosed()) {
+            // Cursor ended the Run while the host ran answered steps; its reply is
+            // queued and its turn is over, so the notes ride the next user turn.
+            if (session.openCodeSessionId) {
+                appendUndeliveredHostNotes(session.openCodeSessionId, [{ notes: stepNotes, order: nextHostNoteOrder++ }]);
+            }
+            trace(`continuation: Run already ended; kept ${stepNotes.length} host note(s) for the next user turn`);
+        }
         else if (!(await injectHostNotes(session, stepNotes))) {
             return undefined;
         }
@@ -3299,23 +3812,26 @@ delivery = {}) {
 /**
  * Add host notes to the running turn as Cursor SDK `Run.steer` does:
  * `inject_context_action.user_context` with plain text, bound to this Run.
- * Written after the step's results, so Cursor sees them before its next step.
+ * Continuations write these after their step's results. An input-image copy
+ * refusal sends its notice first because Cursor ignores that copy's result.
  */
 async function injectHostNotes(session, notes, order = nextHostNoteOrder++) {
     const text = hostNoteText(notes);
     if (!text)
         return true;
     const injectionId = crypto.randomUUID();
+    const messageId = crypto.randomUUID();
     const sessionKey = session.openCodeSessionId;
     if (sessionKey)
         trackHostNoteInjection(sessionKey, injectionId, [...notes], session, order);
+    trackRunInjection(session.injections ??= [], { kind: "note", injectionId, messageId, text, notes: [...notes] });
     try {
         await writeWithBackpressure(session.stream, encodeMessage("AgentClientMessage", {
             conversation_action: {
                 inject_context_action: {
                     injection_id: injectionId,
                     ...(session.runId ? { expected_run_id: session.runId } : {}),
-                    user_context: { user_message: { text, message_id: crypto.randomUUID() } },
+                    user_context: { user_message: { text, message_id: messageId } },
                 },
             },
         }), "host note injection");
@@ -3348,6 +3864,10 @@ function trackHostNoteInjection(sessionKey, injectionId, notes, session, order) 
  * provider sent. Same outcomes as Cursor SDK `Run.steer`: `delivered` hands
  * the notes to the turn; `queued` waits; `queued_for_next_turn`, `cancelled`
  * and `rejected` keep them for the session's next user turn.
+ * A delivered note stays tracked until the Run stores a checkpoint after the
+ * ack (`forgetCheckpointedHostNotes`): the checkpoint stored before it lacks
+ * the note, and while the Run waits on a host tool the next one sits unread in
+ * `heldFrames`, so a restart saves the note with the deferred ones (#153).
  * Returns true when Cursor delivered an early steer: the model answers it next.
  */
 function applyContextInjectionState(session, value) {
@@ -3357,20 +3877,39 @@ function applyContextInjectionState(session, value) {
     trace(`context_injection_state: id=${update.injection_id ?? ""} state=${kind}` +
         (reason ? ` reason=${JSON.stringify(reason)}` : ""));
     const sessionKey = session.openCodeSessionId;
+    if (kind === "delivered")
+        markRunInjectionDelivered(session.injections, update.injection_id);
     if (kind === "delivered" && markEarlySteerDelivered(sessionKey, update.injection_id))
         return true;
     const entries = sessionKey ? hostNoteInjectionsBySession.get(sessionKey) : undefined;
     const entry = update.injection_id ? entries?.get(update.injection_id) : undefined;
     if (!sessionKey || !entries || !entry || kind === "queued" || kind === "unknown")
         return false;
+    if (kind === "delivered") {
+        entry.delivered = true;
+        return false;
+    }
     entries.delete(update.injection_id);
     if (entries.size === 0)
         hostNoteInjectionsBySession.delete(sessionKey);
-    if (kind === "delivered")
-        return false;
     appendUndeliveredHostNotes(sessionKey, [{ notes: entry.notes, order: entry.order }]);
     trace(`continuation: host note injection ${kind}; kept for the next user turn sessionKey=${sessionKey}`);
     return false;
+}
+/** A checkpoint `session` stored after a delivery ack holds that note. */
+function forgetCheckpointedHostNotes(session) {
+    const sessionKey = session.openCodeSessionId;
+    const entries = sessionKey ? hostNoteInjectionsBySession.get(sessionKey) : undefined;
+    if (!sessionKey || !entries)
+        return;
+    for (const [injectionId, entry] of entries) {
+        if (entry.session !== session || !entry.delivered)
+            continue;
+        entries.delete(injectionId);
+        trace(`continuation: delivered host note injection checkpointed id=${injectionId}`);
+    }
+    if (entries.size === 0)
+        hostNoteInjectionsBySession.delete(sessionKey);
 }
 /**
  * Return unacknowledged injections to the next-user-turn store: those of
@@ -3407,6 +3946,21 @@ function takeHostNoteInjections(owner) {
         hostNoteInjectionsBySession.delete(sessionKey);
     return notes.sort((a, b) => a.order - b.order);
 }
+/** Notes the interrupted Run's own request delivered, older than the deferred ones. */
+export function restoreInterruptedRunHostNotes(sessionKey, persisted, deferred) {
+    const later = new Set(decodePersistedHostNotes(deferred));
+    const notes = decodePersistedHostNotes(persisted).filter((note) => !later.has(note));
+    interruptedRunHostNotesBySession.delete(sessionKey);
+    if (notes.length === 0)
+        return;
+    interruptedRunHostNotesBySession.set(sessionKey, { notes, order: nextHostNoteOrder++ });
+    while (interruptedRunHostNotesBySession.size > MAX_TURN_STATE_SESSIONS) {
+        const oldest = interruptedRunHostNotesBySession.keys().next().value;
+        if (!oldest)
+            break;
+        interruptedRunHostNotesBySession.delete(oldest);
+    }
+}
 /** Notes the restart snapshot kept for this session's next user turn. */
 export function restorePersistedHostNotes(sessionKey, persisted) {
     const notes = decodePersistedHostNotes(persisted);
@@ -3425,6 +3979,17 @@ export function prepareUserTurnHostNotes(input) {
     // longer be delivered there; a still-open Run keeps its own.
     if (sessionKey && !isCompaction && !ephemeralRun)
         releaseHostNoteInjections(sessionKey, "run-closed");
+    const interrupted = sessionKey && !ephemeralRun ? interruptedRunHostNotesBySession.get(sessionKey) : undefined;
+    const checkpointedNotes = interrupted && !isCompaction && (startedWithCheckpoint || resuming) ? [interrupted] : [];
+    if (interrupted) {
+        // A Run on the interrupted Run's checkpoint already holds them. A
+        // compaction does not deliver them, but the main Run after it rebases from
+        // the summary, so they wait with the deferred notes every snapshot saves.
+        if (checkpointedNotes.length === 0) {
+            interruptedRunHostNotesBySession.delete(sessionKey);
+            appendUndeliveredHostNotes(sessionKey, [interrupted]);
+        }
+    }
     // An interrupted-turn resume carries no user message; notes wait for the next one.
     const undelivered = isCompaction || ephemeralRun || resuming || !sessionKey
         ? undefined
@@ -3450,6 +4015,9 @@ export function prepareUserTurnHostNotes(input) {
     }
     return {
         carriedNotes: [
+            // Its checkpoint holds these notes, but a later recovery may have to
+            // rebuild without that checkpoint. Transfer their ownership to the Run.
+            ...checkpointedNotes,
             ...(undelivered ?? []),
             ...(turnBoundary.length ? [{ notes: turnBoundary, order: nextHostNoteOrder++ }] : []),
         ],
@@ -3458,10 +4026,27 @@ export function prepareUserTurnHostNotes(input) {
             ...wrapHostNotesForCursor(turnBoundary),
         ],
         sent: () => {
+            if (sessionKey && interruptedRunHostNotesBySession.get(sessionKey) === interrupted) {
+                interruptedRunHostNotesBySession.delete(sessionKey);
+            }
             if (sessionKey && undelivered?.length) {
                 forgetUndeliveredHostNotes(sessionKey, undelivered, startedWithCheckpoint ? "user-turn" : "seed-history");
             }
         },
+    };
+}
+/**
+ * An in-progress save's notes. Only those the Run's own request delivered are
+ * known to be in its checkpoint; an injection not yet in a stored checkpoint,
+ * acknowledged or not, may not be, so it is deferred like one released from a
+ * closed Run.
+ */
+function heldRunHostNotes(session, sessionKey) {
+    const injected = [...(hostNoteInjectionsBySession.get(sessionKey)?.values() ?? [])].filter((entry) => entry.session === session);
+    const deferred = [...(undeliveredHostNotesBySession.get(sessionKey) ?? []), ...injected].sort((a, b) => a.order - b.order);
+    return {
+        hostNote: encodePersistedHostNotes(deferred.flatMap((batch) => batch.notes)),
+        runHostNote: encodePersistedHostNotes((session.userTurnHostNotes ?? []).flatMap((batch) => batch.notes)),
     };
 }
 function undeliveredHostNotes(sessionKey) {
@@ -3520,13 +4105,15 @@ function injectHostSteer(session, steer) {
         trace(`steer: too many early steers tracked for sessionID=${steer.sessionID}; left for the next step`);
         return false;
     }
+    const messageId = crypto.randomUUID();
+    trackRunInjection(session.injections ??= [], { kind: "steer", injectionId, messageId, text: steer.text });
     // While it waits behind another write, the host may withdraw it, or its Run may end or be replaced.
     writeWithBackpressure(stream, encodeMessage("AgentClientMessage", {
         conversation_action: {
             inject_context_action: {
                 injection_id: injectionId,
                 expected_run_id: runId,
-                user_context: { user_message: { text: steer.text, message_id: crypto.randomUUID() } },
+                user_context: { user_message: { text: steer.text, message_id: messageId } },
             },
         },
     }), "steer injection", () => isEarlySteerTracked(steer.sessionID, injectionId) && takesSteers()).then((written) => {
@@ -3629,10 +4216,41 @@ async function leaveOutAnsweredEarlySteers(prompt, sessionKey) {
         await persistTerminalCheckpoint(run);
     return "all";
 }
-function answeredSteerStream() {
+const PLAN_INTERRUPTED_NOTICE = "Plan saving or review was interrupted. No implementation was approved. Send a new message to continue.";
+function interruptedPlanContinuation(prompt, sessionKey, mayStartUserTurn) {
+    // Title/summary helpers may carry their parent's history while its plan
+    // write is still live. The ordinary helper-isolation path owns those calls.
+    if (sessionManager.findOpenByOpenCodeSessionId(sessionKey))
+        return false;
+    const incomplete = incompletePlanOperations(sessionKey);
+    if (incomplete.length === 0)
+        return false;
+    const calls = new Set(incomplete.map(plan => plan.hostCallId));
+    let priorCall = -1;
+    for (let index = prompt.length - 1; index >= 0; index--) {
+        const message = prompt[index];
+        if (message.role === "assistant" && message.content.some(part => part.type === "tool-call" && calls.has(part.toolCallId))) {
+            priorCall = index;
+            break;
+        }
+    }
+    const live = liveUserTurn(prompt);
+    if (priorCall >= 0 && live && live.text !== "." && live.start > priorCall) {
+        if (mayStartUserTurn)
+            clearPlanOperations(sessionKey);
+        return false;
+    }
+    return priorCall >= 0 || extractToolResults(prompt).some(result => calls.has(result.toolCallId));
+}
+function answeredSteerStream(notice) {
     return new ReadableStream({
         start(controller) {
             controller.enqueue({ type: "stream-start", warnings: [] });
+            if (notice) {
+                controller.enqueue({ type: "text-start", id: "plan-interrupted" });
+                controller.enqueue({ type: "text-delta", id: "plan-interrupted", delta: notice });
+                controller.enqueue({ type: "text-end", id: "plan-interrupted" });
+            }
             controller.enqueue({
                 type: "finish",
                 finishReason: { unified: "stop", raw: undefined },
@@ -3690,6 +4308,67 @@ function continuationAfterEarlySteers(prompt, sessionKey) {
     trace(`continuation: ${results.length} trailing tool result(s) before ${steers.length} early steer(s) ` +
         `the held Run already has inboxIDs=${steers.map((steer) => steer.inboxID).join(",")}`);
     return { results, session: held };
+}
+/**
+ * A history rebuild after completed tool results seeds `prompt` (every tool result and the trailing
+ * user messages) as a new conversation. Each of the failed Run's own injections Cursor appended must
+ * reach that conversation once:
+ * - an early steer through OpenCode's promoted copy at the boundary it was promoted at
+ *   (`handOverEarlySteers` then forgets the record, so nothing injects it again);
+ * - a host note through the seeded text, or as an injection the Run still tracks, which the rebuild
+ *   carries over unless the seed already holds it (`prepareUserTurnHostNotes`).
+ * A steer appended in the cut step before OpenCode promoted it, or a note history no longer holds,
+ * keeps the rebuild refused.
+ */
+function appendedInjectionsInRebuild(failed, prompt) {
+    const appended = failed.replaySafety?.appendedInjections;
+    if (!appended?.length)
+        return true;
+    const sessionKey = failed.openCodeSessionId;
+    const copies = prompt.flatMap((message, index) => message.role === "user" && !message.content.some((part) => part.type !== "text")
+        ? [{ index, text: extractUserText(message) }]
+        : []);
+    const blockStart = (index) => {
+        while (index > 0 && (prompt[index - 1].role === "user" || prompt[index - 1].role === "system"))
+            index--;
+        return index;
+    };
+    const tracked = sessionKey ? hostNoteInjectionsBySession.get(sessionKey) : undefined;
+    // A failed replacement open leaves the notes `reopen` took from the Run in
+    // this store. They still reach the next seed even when host history lost them.
+    const deferred = sessionKey ? undeliveredHostNotes(sessionKey) : [];
+    let seeded;
+    for (const injection of appended) {
+        if (injection.kind === "steer") {
+            const record = findEarlySteer(sessionKey, injection.injectionId);
+            const copy = record?.delivered && record.promoted && record.hostTurn
+                ? copies.findIndex(({ index, text }) => carriesSteer(text, record.text)
+                    && steerHostTurn(prompt, blockStart(index)) === record.hostTurn)
+                : -1;
+            if (copy === -1) {
+                trace(`recovery: appended-not-in-history kind=steer injectionId=${injection.injectionId} ` +
+                    `promoted=${!!record?.promoted} sessionId=${failed.sessionId}`);
+                return false;
+            }
+            copies.splice(copy, 1);
+            continue;
+        }
+        if (tracked?.get(injection.injectionId)?.session === failed)
+            continue;
+        if (injection.notes.every((note) => deferred.includes(note)))
+            continue;
+        // The seed `startSession` builds for a completed-tool-results rebase.
+        seeded ??= extractPromptHistory(prompt, { preserveTrailingUser: true, toolResults: "all" })
+            .filter((message) => message.role === "user")
+            .map((message) => message.content)
+            .join("\n\n");
+        if (!injection.notes.every((note) => seeded.includes(note.trim()))) {
+            trace(`recovery: appended-not-in-history kind=note injectionId=${injection.injectionId} ` +
+                `sessionId=${failed.sessionId}`);
+            return false;
+        }
+    }
+    return true;
 }
 async function loadAvailableModels() {
     const cacheDir = opencodeGlobalCacheDir();
@@ -3907,11 +4586,17 @@ export async function pump(session, controller, ids, abortSignal) {
     // the cancel lands — controller.enqueue on a cancelled controller throws.
     // safeEnqueue swallows that throw and tracks the close so we stop pumping.
     let streamClosed = false;
+    /** Model output this step streamed to the host: its output estimate until `TurnEnded`. */
+    let stepOutputChars = 0;
+    let stepReasoningChars = 0;
     const safeEnqueue = (part) => {
         if (streamClosed)
             return false;
         try {
             controller.enqueue(part);
+            stepOutputChars += streamedOutputChars(part);
+            if (part.type === "reasoning-delta")
+                stepReasoningChars += part.delta.length;
             if (session.openCodeSessionId) {
                 recordEmittedPart(session.openCodeSessionId, session.conversationId, part);
             }
@@ -3964,13 +4649,20 @@ export async function pump(session, controller, ids, abortSignal) {
             session.parallelStep = undefined;
         }
     };
+    /** End the host step on tool calls; a step of released calls books nothing. */
+    const finishToolStep = () => {
+        const unbilled = session.parallelStep?.unbilled === true;
+        clearParallelStep();
+        emitFinish(undefined, { unified: "tool-calls", raw: undefined }, undefined, undefined, { unbilled });
+    };
     /** Record a final disposition for a Cursor call id (emit, refuse, or internal). */
-    const disposeParallelCall = (callId) => {
+    const disposeParallelCall = (callId, currentExec = false) => {
         if (!callId)
             return;
-        if (session.priorParallelStepCallIds?.has(callId))
+        finishOrderedCall(session.stepOrder, callId);
+        if (!currentExec && session.priorParallelStepCallIds?.has(callId))
             return;
-        resolveParallelStepCall(ensureParallelStep(), callId, session.priorParallelStepCallIds);
+        resolveParallelStepCall(ensureParallelStep(), callId, currentExec ? undefined : session.priorParallelStepCallIds);
     };
     /**
      * After a refuse / server-side completion: finish the AI SDK step if host
@@ -3984,8 +4676,7 @@ export async function pump(session, controller, ids, abortSignal) {
             clearParallelStep();
             return false;
         }
-        clearParallelStep();
-        emitFinish(undefined, { unified: "tool-calls", raw: undefined });
+        finishToolStep();
         return true;
     };
     /**
@@ -3996,7 +4687,9 @@ export async function pump(session, controller, ids, abortSignal) {
     const finishStepOrContinue = (options) => {
         const step = ensureParallelStep();
         if (options?.callId) {
-            resolveParallelStepCall(step, options.callId, session.priorParallelStepCallIds);
+            // A new host emission owns this step even if its call id already ran a
+            // prerequisite read or another phase. Only late display completions are old.
+            resolveParallelStepCall(step, options.callId);
         }
         recordParallelStepEmission(step);
         if (shouldHoldParallelStep(step, { humanGatedWithoutCount: options?.humanGated })) {
@@ -4004,8 +4697,7 @@ export async function pump(session, controller, ids, abortSignal) {
                 `resolved=${step.resolved.size} emitted=${step.emitted}`);
             return false;
         }
-        clearParallelStep();
-        emitFinish(undefined, { unified: "tool-calls", raw: undefined });
+        finishToolStep();
         return true;
     };
     /** Close a held step via the liveness guard (count unmet, no progress). */
@@ -4017,8 +4709,7 @@ export async function pump(session, controller, ids, abortSignal) {
         }
         trace(`parallel-step: guard-close listed=${step.listedCount ?? "?"} ` +
             `resolved=${step.resolved.size} emitted=${step.emitted}`);
-        clearParallelStep();
-        emitFinish(undefined, { unified: "tool-calls", raw: undefined });
+        finishToolStep();
         return true;
     };
     /** Never reopen/replay a model attempt after emitting host side effects. */
@@ -4028,8 +4719,7 @@ export async function pump(session, controller, ids, abortSignal) {
         if (error)
             session.closeError = error;
         session.deferredTerminalReason = reason;
-        clearParallelStep();
-        emitFinish(undefined, { unified: "tool-calls", raw: undefined });
+        finishToolStep();
         return true;
     };
     /**
@@ -4088,6 +4778,7 @@ export async function pump(session, controller, ids, abortSignal) {
             })) {
                 await writeWithBackpressure(session.stream, frame, "missing edit target reply");
             }
+            replaySafety.recordProviderAnswer(parsed.id, "edit-handshake");
             trace(`exec: missing edit target treated as empty file id=${parsed.id} ` +
                 `path=${JSON.stringify(requestedPath)}; awaiting write_args`);
             return true;
@@ -4123,6 +4814,7 @@ export async function pump(session, controller, ids, abortSignal) {
         const ok = await writeExecFrames(buildTaskAttachmentReadMessages(parsed.id, target, requested), `reply to task attachment read id=${parsed.id}`);
         if (!ok)
             return false;
+        replaySafety.recordProviderAnswer(parsed.id, "task-attachment");
         trace(`exec: task attachment read answered id=${parsed.id} callId=${displayCallId} path=${JSON.stringify(requested)}`);
         return true;
     };
@@ -4167,6 +4859,7 @@ export async function pump(session, controller, ids, abortSignal) {
             for (const frame of buildReadRejectionMessages(parsed.id, readResult)) {
                 await writeWithBackpressure(session.stream, frame, "missing read target reply");
             }
+            replaySafety.recordProviderAnswer(parsed.id, "missing-read");
             const kind = Object.keys(readResult)[0];
             trace(`exec: rejected missing read target id=${parsed.id} kind=${kind} ` +
                 `path=${JSON.stringify(absolutePath)}`);
@@ -4319,37 +5012,89 @@ export async function pump(session, controller, ids, abortSignal) {
         safeEnqueue({ type: "tool-input-start", id: row.toolCallId, toolName });
         closeEarlyRow(row, { kind: "outcome", text, isError: true });
     };
-    const emitFinish = (te, reason, settledUsage, settledSource) => {
+    const emitFinish = (te, reason, settledUsage, settledSource, options) => {
         settleOpenEarlyRows(reason.unified === "tool-calls" && emittedHostTools > 0);
         flushToollessText();
         closeOpenSpans();
+        if (options?.unbilled && !te) {
+            // Calls released from a hold belong to a Cursor step already booked with
+            // the host step that held them. OpenCode 2 prices any reported token, so
+            // this step reports none and costs nothing; its output stays for TurnEnded.
+            trace(`billing: step=released pricing=${session.billing.cost ? "priced" : "unpriced"} stepUsd=0.000000 ` +
+                `key=${session.billing.key}`);
+            const delivered = safeEnqueue({
+                type: "finish",
+                usage: emptyLanguageModelV3Usage(),
+                finishReason: reason,
+                providerMetadata: {
+                    copilot: { totalNanoAiu: 0 },
+                    cursor: { usageVersion: 3, occupancyOnly: true, releasedStep: true },
+                },
+            });
+            if (delivered && session.openCodeSessionId) {
+                finishEmittedStep(session.openCodeSessionId, session.conversationId);
+                if (reason.unified === "tool-calls")
+                    scheduleHeldRunSave(session);
+            }
+            return;
+        }
         const est = session.usageEstimate;
         // OpenCode TUI/GUI replace each assistant message's tokens (they do not
-        // sum occupancy) and the TUI footer requires tokens.output > 0. Cost is
-        // added per step-finish. Emit checkpoint occupancy snapshots at tool-call
-        // boundaries and once more at TurnEnded/stop, each billed through
-        // `src/billing.ts`. Held-Run TurnEnded counters are cumulative across
-        // every tool step, but this finish only spans the last generation slice —
-        // putting output_tokens/reasoning there makes host tok/s
-        // (generated/stepElapsed) absurd. Keep exact request counters under
-        // providerMetadata.cursor.*Raw. Char/4 usageEstimate stays traces-only.
+        // sum occupancy) and the TUI footer requires tokens.output > 0. Cost and
+        // output are added per step-finish. Emit checkpoint occupancy snapshots at
+        // tool-call boundaries and once more at TurnEnded/stop, each billed through
+        // `src/billing.ts`. Held-Run TurnEnded counters are cumulative across every
+        // tool step, so a tool step reports its streamed output as an estimate and
+        // TurnEnded reports the rest of Cursor's output_tokens. Exact request
+        // counters stay under providerMetadata.cursor.*Raw.
         const tokenDetails = session.tokenDetails;
         const occupancyDetails = tokenDetails && tokenDetails.usedTokens > 0 ? tokenDetails : undefined;
         const contextSource = tokenDetails
-            ? session.tokenDetailsFresh
-                ? "checkpoint-current-run"
-                : "checkpoint-previous-turn"
+            ? tokenDetails.rawUsedTokens !== undefined
+                ? "checkpoint-held-spike"
+                : session.tokenDetailsFresh
+                    ? "checkpoint-current-run"
+                    : "checkpoint-previous-turn"
             : undefined;
         // Bill the step (see `src/billing.ts`): a tool step is an estimate shaped
         // like one model call; the turn's last step reconciles the catalog-priced
         // aggregate counters. Either way its token total stays the occupancy snapshot.
         const billing = session.billing;
+        const stepOutput = te
+            ? billingLedger.outstandingOutput(billing.key)
+            : { output: estimateTokens(stepOutputChars), reasoning: estimateTokens(stepReasoningChars) };
+        stepOutputChars = 0;
+        stepReasoningChars = 0;
+        // A tool step costs what a one-call estimate with a single output token
+        // would: held Runs split into many steps already overstate cached input,
+        // and pricing the estimated output on top would bill ahead of TurnEnded.
+        const estimatePrices = !te && occupancyDetails
+            ? hostStepPrices(billing.cost, occupancyDetails.usedTokens - 1)
+            : undefined;
+        const targetUsd = !billing.cost || !occupancyDetails
+            ? undefined
+            : te
+                ? billingLedger.outstanding(billing.key)
+                : shapeStepUsage({
+                    usedTokens: occupancyDetails.usedTokens,
+                    prefixTokens: billing.prefixTokens,
+                    outputTokens: 1,
+                    prices: estimatePrices,
+                }).costUsd;
+        // Estimated output that target cannot carry is left for TurnEnded to report.
+        const stepOutputTokens = !occupancyDetails
+            ? 0
+            : Math.min(occupancyDetails.usedTokens, Math.max(1, stepOutput.output), estimatePrices && targetUsd !== undefined
+                ? maxOutputWithinUsd(occupancyDetails.usedTokens, estimatePrices, targetUsd)
+                : Number.POSITIVE_INFINITY);
         const shaped = occupancyDetails && !settledUsage
             ? shapeStepUsage({
                 usedTokens: occupancyDetails.usedTokens,
                 prefixTokens: billing.prefixTokens,
-                prices: hostStepPrices(billing.cost, occupancyDetails.usedTokens - 1),
-                ...(te && billing.cost ? { targetUsd: billingLedger.outstanding(billing.key) } : {}),
+                outputTokens: stepOutputTokens,
+                reasoningTokens: stepOutput.reasoning,
+                prices: hostStepPrices(billing.cost, occupancyDetails.usedTokens - stepOutputTokens),
+                ...(targetUsd !== undefined ? { targetUsd } : {}),
             })
             : undefined;
         const stepCostUsd = shaped?.costUsd ?? 0;
@@ -4412,7 +5157,7 @@ export async function pump(session, controller, ids, abortSignal) {
         if (occupancyDetails) {
             // The shaped split is the intended partition; validate totals against it.
             const cached = (usage.inputTokens.cacheRead ?? 0) + (usage.inputTokens.cacheWrite ?? 0);
-            trace(formatTurnUsageValidation(occupancyValidationCounters(occupancyDetails, { usedTokens: cached, maxTokens: occupancyDetails.maxTokens }), usage, occupancyDetails, contextSource, "occupancy"));
+            trace(formatTurnUsageValidation(occupancyValidationCounters(occupancyDetails, { usedTokens: cached, maxTokens: occupancyDetails.maxTokens }, usage.outputTokens.total ?? 0), usage, occupancyDetails, contextSource, "occupancy"));
         }
         else if (counters) {
             trace(formatTurnUsageValidation(counters, usage, tokenDetails, contextSource));
@@ -4432,14 +5177,21 @@ export async function pump(session, controller, ids, abortSignal) {
                 scheduleHeldRunSave(session);
         }
         if (delivered && shaped && occupancyDetails) {
-            billingLedger.recordBilled(billing.key, shaped.costUsd, te ? undefined : billing);
+            billingLedger.recordBilled(billing.key, shaped.costUsd, te ? undefined : billing, {
+                output: shaped.usage.outputTokens.total ?? 0,
+                reasoning: shaped.usage.outputTokens.reasoning ?? 0,
+            });
             billing.prefixTokens = occupancyDetails.usedTokens;
         }
         const booked = billingLedger.totals(billing.key);
+        const bookedOutput = billingLedger.outputTotals(billing.key);
         trace(`billing: step=${te ? "turn-end" : "estimate"} pricing=${billing.cost ? "priced" : "unpriced"} ` +
             `delivered=${delivered} stepUsd=${(delivered ? stepCostUsd : 0).toFixed(6)} ` +
             `sessionRealUsd=${booked.realUsd.toFixed(6)} sessionBilledUsd=${booked.billedUsd.toFixed(6)} ` +
-            `sessionEstimatedUsd=${billingLedger.estimated(billing.key).toFixed(6)} key=${billing.key}`);
+            `sessionEstimatedUsd=${billingLedger.estimated(billing.key).toFixed(6)} ` +
+            `stepOutput=${delivered && shaped ? shaped.usage.outputTokens.total ?? 0 : 0} ` +
+            `sessionRealOutput=${bookedOutput.real.output} sessionReportedOutput=${bookedOutput.reported.output} ` +
+            `key=${billing.key}`);
     };
     // The cancel path drains and closes the Run; a frame read here goes back to it.
     const stopForHostInterrupt = (read) => {
@@ -4472,6 +5224,118 @@ export async function pump(session, controller, ids, abortSignal) {
             clearParallelStep();
             sessionManager.closeUnlessPending(session);
             return;
+        }
+        // After a successful CreatePlan host write, emit the queued review (or show
+        // the held plan) before waiting for another Cursor frame. Cursor is still
+        // blocking on the interaction query.
+        const queuedPlan = session.queuedCreatePlanAction;
+        if (queuedPlan) {
+            session.queuedCreatePlanAction = undefined;
+            if (queuedPlan.planReview)
+                emitPlanReview(queuedPlan.planReview);
+            if (queuedPlan.kind === "review") {
+                const reviewTool = queuedPlan.toolName === "plan_exit" ? "plan_exit" : "question";
+                // Re-check current permission evidence before offering execution.
+                const refusal = session.sessionPermissionsUnavailable ? SESSION_PERMISSIONS_UNAVAILABLE_REASON
+                    : session.sessionEditsDenied ? createPlanSessionEditsDeniedReason(queuedPlan.planPath)
+                        : isPlanTurnEnding() ? CREATE_PLAN_NOT_APPROVED_REASON
+                            : !session.allowTools || !advertisedToolNameSet.has(reviewTool) || !fileToolNames().has(reviewTool)
+                                ? `CreatePlan review tool '${reviewTool}' is unavailable on this turn. No implementation was approved.`
+                                : undefined;
+                if (refusal) {
+                    try {
+                        await writeWithBackpressure(session.stream, buildCreatePlanInteractionReply(queuedPlan.interactionId, {
+                            error: { error: refusal },
+                            plan_uri: "",
+                        }), `create_plan review refused id=${queuedPlan.interactionId}`);
+                    }
+                    catch (error) {
+                        rethrowTransportWriteFailure(error);
+                        failRunProtocol("Cursor interaction reply failed", RUN_REPLY_FAILED);
+                    }
+                    session.planReviewDeclined = true;
+                    if (queuedPlan.receiptHostCallId)
+                        clearPlanOperation(session.openCodeSessionId, queuedPlan.receiptHostCallId);
+                    await persistPlanOperations(session);
+                    continue;
+                }
+                const reviewExecId = session.nextBridgedExecId++;
+                sessionManager.registerPending(reviewExecId, session, CREATE_PLAN_RESULT_FIELD, reviewTool, false, {
+                    interactionId: queuedPlan.interactionId,
+                    createPlanToolCallId: queuedPlan.createPlanToolCallId,
+                    createPlanBridgeKind: queuedPlan.bridgeKind,
+                    createPlanPhase: "review",
+                    planOperationHostCallId: queuedPlan.receiptHostCallId,
+                    createPlanQuestion: queuedPlan.createPlanQuestion ?? "",
+                    planUri: queuedPlan.planUri,
+                    ...(queuedPlan.planPath ? { planPath: queuedPlan.planPath } : {}),
+                });
+                const reviewToolCallId = `cursor_${session.sessionId}_${reviewExecId}`;
+                const input = reviewTool === "question"
+                    ? (queuedPlan.questionInput ?? createPlanApprovalQuestionInput(queuedPlan.planPath))
+                    : {};
+                emittedHostTools++;
+                closeOpenSpans();
+                safeEnqueue({
+                    type: "tool-call",
+                    toolCallId: reviewToolCallId,
+                    toolName: reviewTool,
+                    input: JSON.stringify(input),
+                });
+                if (finishStepOrContinue({
+                    callId: queuedPlan.createPlanToolCallId || reviewToolCallId,
+                    humanGated: true,
+                }))
+                    return;
+                continue;
+            }
+            // hold/ack replies were already written during write-result delivery.
+            if (queuedPlan.kind === "hold")
+                session.planReviewDeclined = true;
+            continue;
+        }
+        // Calls held behind a file change: cancel those after a refused one, and
+        // dispatch the rest again, in model order, once nothing blocks them. They
+        // form a host step of their own, so wait for one in progress to end.
+        const order = session.stepOrder;
+        if (order && order.held.length > 0) {
+            // Control frames already received take effect before a held call can run.
+            applyQueuedAborts(session);
+            for (const held of takeCancelledExecs(order)) {
+                const current = session.pending.get(held.execId);
+                if (!current || current !== held.pending || current.state !== "pending" || current.aborted)
+                    continue;
+                const row = earlyRows.claim(held.callId);
+                if (row)
+                    closeEarlyRow(row, { kind: "outcome", ...cursorEditFailure(row.path, HELD_CALL_CANCELLED_REASON) });
+                if (!await replyExecRefusal(held.request, HELD_CALL_CANCELLED_REASON, "held call cancelled"))
+                    return;
+                sessionManager.resolve(session.sessionId, held.execId);
+            }
+            const released = session.parallelStep ? [] : takeReleasableExecs(order).filter((held) => {
+                if (sessionManager.forgetHeldExec(session, held.execId, held.pending))
+                    return true;
+                // Its pending entry is gone (the Run is stopping): it never runs and blocks nothing.
+                finishOrderedCall(order, held.callId);
+                return false;
+            });
+            if (released.length > 0) {
+                for (const held of released) {
+                    session.priorParallelStepCallIds?.delete(held.callId);
+                    redispatchedFrames.add(held.frame);
+                }
+                const step = createParallelStep();
+                step.listedCount = released.length;
+                step.unbilled = true;
+                session.parallelStep = step;
+                const queued = session.heldFrames ?? [];
+                if (session.pushbackFrame)
+                    queued.unshift(session.pushbackFrame);
+                session.pushbackFrame = undefined;
+                session.heldFrames = [...released.map((held) => held.frame), ...queued];
+                trace(`step-order: released ${released.length} held call(s) ` +
+                    `execIds=[${released.map((held) => held.execId).join(",")}] stillHeld=${order.held.length}`);
+            }
         }
         let next;
         try {
@@ -4625,25 +5489,38 @@ export async function pump(session, controller, ids, abortSignal) {
             (requiredChannel === "interaction" && !interactionQuery)) {
             failRunProtocol("Cursor response-requiring request could not be decoded", RUN_REQUEST_DECODE_FAILED);
         }
-        const replayFrame = analyzeReplayFrame(payload, {
+        // A held exec dispatched again was already accounted for when it arrived.
+        const redispatched = redispatchedFrames.delete(frame);
+        const replayFrame = redispatched ? undefined : analyzeReplayFrame(payload, {
             interactionUpdate: iu,
             exec: esm,
             kv,
             execControl,
             interactionQuery,
         });
-        if (replayFrame.barrier === "unknown-or-malformed-frame" && isDebugEnabled()) {
+        if (replayFrame?.barrier === "unknown-or-malformed-frame" && isDebugEnabled()) {
             const layout = describeFrameLayout(payload);
             if (!unknownFrameLayouts.has(layout)) {
                 unknownFrameLayouts.add(layout);
                 trace(`replay frame unknown: layout=${layout} bytes=${payload.length}`);
             }
         }
-        if (replayFrame.barrier === "display-tool-lifecycle")
+        if (replayFrame?.barrier === "display-tool-lifecycle") {
             replaySafety.recordToolLifecycle(replayFrame.toolLifecycle);
-        else if (replayFrame.barrier)
+            acknowledgeHostResults(session, replayFrame.toolLifecycle, frame);
+        }
+        else if (iu?.user_message_appended && replayFrame?.barrier === "stateful-interaction") {
+            const injection = takeAppendedInjection(session.injections, replayFrame.appendedUserMessage);
+            // Field numbers and wire types only, so an unexpected echo shape can be compared.
+            if (!injection) {
+                trace(`recovery: appended-unmatched layout=${describeFrameLayout(payload, 4)} ` +
+                    `parsed=${!!replayFrame.appendedUserMessage} sessionId=${session.sessionId}`);
+            }
+            replaySafety.recordAppendedMessage(injection);
+        }
+        else if (replayFrame?.barrier)
             replaySafety.markBarrier(replayFrame.barrier);
-        if (replayFrame.barrier === "non-control-exec") {
+        if (replayFrame?.barrier === "non-control-exec") {
             replaySafety.recordExec(esm?.id, esm ? extractExecDisplayCallId(esm) : undefined);
         }
         // Reseeding is allowed only while every frame so far was positively a
@@ -4653,7 +5530,7 @@ export async function pump(session, controller, ids, abortSignal) {
             onlyControlFrames = false;
         {
             const iuKind = iu ? Object.keys(iu).find((k) => iu[k]) : undefined;
-            trace(`pump frame: topField=${topField} interaction_update=${iuKind ?? "-"} ` +
+            traceVerbose(`pump frame: topField=${topField} interaction_update=${iuKind ?? "-"} ` +
                 `exec=${esm ? "yes" : "no"} kv=${kv ? "yes" : "no"} ` +
                 `interaction_query=${interactionQuery ? "yes" : "no"} ` +
                 `checkpoint=${checkpointRaw ? "yes" : "no"}`);
@@ -4668,8 +5545,10 @@ export async function pump(session, controller, ids, abortSignal) {
                 toolCallDelta: !!iu?.tool_call_delta,
                 toolCallStarted: !!iu?.tool_call_started,
                 // Completions reset progress only when they resolve a new call below.
-                // Setup probes are control traffic, like heartbeat/KV.
-                exec: !!esm && !esm.request_context_args && !esm.mcp_state_exec_args,
+                // Setup probes and requests about a call already sent (Cursor retries
+                // force-background while a held shell runs) are control traffic, like
+                // heartbeat/KV.
+                exec: !!esm && !isExecRequestWithoutNewCall(detectExecVariantField(payload)),
                 interactionQuery: !!interactionQuery,
                 textDelta: !!iu?.text_delta,
                 thinkingDelta: !!iu?.thinking_delta,
@@ -4683,22 +5562,30 @@ export async function pump(session, controller, ids, abortSignal) {
                 const bytes = normalizeCheckpointBytes(checkpointRaw);
                 if (bytes && bytes.length > 0) {
                     cacheDiagnostics.checkpointUpdates++;
-                    setCheckpoint(session.conversationId, bytes);
+                    const observation = checkpointObservation(session, frame);
+                    setCheckpoint(session.conversationId, bytes, observation);
                     noteCheckpoint(session.openCodeSessionId, bytes);
                     if (!isPlanTurnEnding())
                         acceptResumeCheckpoint(session, bytes, frame);
                     markEarlySteersCheckpointed(session.openCodeSessionId, session.sessionId);
+                    forgetCheckpointedHostNotes(session);
                     noteRunImageCheckpoint(session, bytes, frame);
-                    const tokenDetails = decodeConversationTokenDetails(bytes);
+                    const rawTokenDetails = decodeConversationTokenDetails(bytes);
+                    // A zero reading leaves the reset on the guard until the next positive one.
+                    if (observation.bypass && rawTokenDetails)
+                        session.occupancyMediaAfterFrame = undefined;
+                    const tokenDetails = rawTokenDetails?.usedTokens === 0 ? rawTokenDetails : checkpointTokenDetails(session.conversationId, bytes);
                     if (tokenDetails && !(isPlanTurnEnding() && tokenDetails.usedTokens === 0
                         && (session.tokenDetails?.usedTokens ?? 0) > 0)) {
                         cacheDiagnostics.tokenDetailUpdates++;
                         session.tokenDetails = tokenDetails;
                         session.tokenDetailsFresh = true;
                     }
-                    const context = tokenDetails
-                        ? ` context=${tokenDetails.usedTokens}/${tokenDetails.maxTokens} ` +
-                            `categories=${formatCursorTokenCategories(tokenDetails)}`
+                    const context = rawTokenDetails
+                        ? ` context=${rawTokenDetails.usedTokens}/${rawTokenDetails.maxTokens} ` +
+                            `categories=${formatCursorTokenCategories(rawTokenDetails)} ` +
+                            `characters=${formatCursorCategoryCharacters(rawTokenDetails)}` +
+                            (tokenDetails?.rawUsedTokens !== undefined ? ` acceptedContext=${tokenDetails.usedTokens} source=checkpoint-held-spike` : "")
                         : " context=unavailable";
                     trace(`checkpoint: stored ${bytes.length}B for conversationId=${session.conversationId}${context}`);
                     if (tokenDetails && !rulesCategoryChecked.has(session) && currentCursorTokenBreakdown(tokenDetails)) {
@@ -4723,8 +5610,7 @@ export async function pump(session, controller, ids, abortSignal) {
                     // The Run is terminal even though the host still owes other results.
                     settleOpenEarlyRows();
                     session.pushbackFrame = frame;
-                    clearParallelStep();
-                    emitFinish(undefined, { unified: "tool-calls", raw: undefined });
+                    finishToolStep();
                     return;
                 }
                 trace(`turn_ended raw wire fields: ${debugWalkTurnEnded(payload)}`);
@@ -4742,6 +5628,9 @@ export async function pump(session, controller, ids, abortSignal) {
                 }
                 const turnEnded = iu.turn_ended;
                 recordTurnEndedCost(session, turnEnded);
+                // TurnEnded counts what this Run streamed; a reopened Run estimates only its own output.
+                stepOutputChars = 0;
+                stepReasoningChars = 0;
                 if (session.openCodeSessionId)
                     finishEmittedStep(session.openCodeSessionId, session.conversationId);
                 confirmRunImagesAtTurnEnd(session);
@@ -4821,6 +5710,11 @@ export async function pump(session, controller, ids, abortSignal) {
                         const editToolCalls = session.editToolCalls ?? (session.editToolCalls = new Map());
                         editToolCalls.set(callId, { path: editPath });
                     }
+                    // Resolve an MCP call's host tool as `parseExecServerMessage` resolves its exec.
+                    const mcpHostTool = display?.variant === "mcp_tool_call"
+                        ? mapCursorArgsToOpencode(display.preferredToolName, display.args, "mcp_args", session.hostToolDialect).toolName
+                        : undefined;
+                    announceCall(session.stepOrder ??= createStepOrder(), callId, isFileChangeDisplay(toolCall, mcpHostTool));
                     const callIdLog = callId.replace(/\r?\n/g, "\\n");
                     let wireFields = "";
                     if (variant === "?") {
@@ -4835,6 +5729,8 @@ export async function pump(session, controller, ids, abortSignal) {
             else if (iu?.tool_call_completed) {
                 const completed = iu.tool_call_completed;
                 const callId = typeof completed.call_id === "string" ? completed.call_id : "";
+                if (callId)
+                    finishOrderedCall(session.stepOrder, callId);
                 const earlyRow = earlyRows.claim(callId);
                 // Still listed: no host mutation ran for this edit, so a failure is Cursor's own.
                 const unwrittenEdit = callId ? session.editToolCalls?.get(callId) : undefined;
@@ -4972,6 +5868,7 @@ export async function pump(session, controller, ids, abortSignal) {
                         : undefined;
                 noteToolRequestsListedSeen();
                 if (callCount !== undefined && Number.isFinite(callCount)) {
+                    noteOrderedCallCount(session.stepOrder ??= createStepOrder(), callCount);
                     noteListedCallCount(ensureParallelStep(), callCount);
                     trace(`tool_requests_listed call_count=${callCount}`);
                     if (closeIfParallelStepComplete())
@@ -4979,6 +5876,7 @@ export async function pump(session, controller, ids, abortSignal) {
                 }
             }
             else if (iu?.step_started) {
+                startOrderedStep(session.stepOrder);
                 cacheDiagnostics.stepStarts++;
             }
             else if (iu?.step_completed) {
@@ -4989,7 +5887,8 @@ export async function pump(session, controller, ids, abortSignal) {
                     textBreakPending = true;
             }
             else if (esm) {
-                cacheDiagnostics.execRequests++;
+                if (!redispatched)
+                    cacheDiagnostics.execRequests++;
                 const esmId = esm.id ?? 0;
                 if (esm.request_context_args) {
                     // Server turn-setup probe (#10). Reply with the same RequestContext the Run sent.
@@ -5077,6 +5976,9 @@ export async function pump(session, controller, ids, abortSignal) {
                 else {
                     replaySafety.markBarrier("non-control-exec");
                     const displayCallId = extractExecDisplayCallId(esm);
+                    const orderedCallId = displayCallId ?? `cursor_${session.sessionId}_${esmId}`;
+                    const disposeExecCall = () => disposeParallelCall(displayCallId
+                        ?? (session.stepOrder?.calls.has(orderedCallId) ? orderedCallId : undefined), true);
                     // A refused exec is final for its announced row, on every refusal path.
                     const rejectExec = async (parsed, reason, label) => {
                         const row = earlyRows.claim(displayCallId);
@@ -5092,7 +5994,7 @@ export async function pump(session, controller, ids, abortSignal) {
                                 ? CREATE_PLAN_NOT_APPROVED_REASON
                                 : "The host agent is switching. End this turn; the next agent continues the work.", session.planReviewDeclined ? "plan execution declined" : "agent handoff"))
                                 return;
-                            disposeParallelCall(displayCallId);
+                            disposeExecCall();
                             if (closeIfParallelStepComplete())
                                 return;
                             continue;
@@ -5115,12 +6017,48 @@ export async function pump(session, controller, ids, abortSignal) {
                         for (const message of runtimeMessages) {
                             await writeWithBackpressure(session.stream, message, `runtime metadata reply id=${esmId}`);
                         }
+                        if (isTerminalRecordRead(esm, session.requestContext))
+                            replaySafety.recordProviderAnswer(esmId, "terminal-read");
                         if (displayCallId)
                             session.displayToolCalls.delete(displayCallId);
-                        disposeParallelCall(displayCallId);
+                        disposeExecCall();
                         if (closeIfParallelStepComplete())
                             return;
                         continue;
+                    }
+                    // Keep the model's order in a step that changes a file (`src/step-order.ts`).
+                    // Provider-owned runtime files are answered above. Image bytes stay
+                    // unordered: Cursor does not wait for an input image's copy.
+                    if (session.allowTools) {
+                        const request = parseExecServerMessage(esm, session.hostToolDialect);
+                        if (request && !binaryWritePayload(request)) {
+                            const order = session.stepOrder ??= createStepOrder();
+                            const callId = orderedCallId;
+                            const decision = redispatched
+                                ? "run"
+                                : orderExec(order, callId, isFileChangeExec(request.resultField, request.toolName));
+                            if (decision === "cancel") {
+                                if (!await rejectExec(request, HELD_CALL_CANCELLED_REASON, "after a refused file change"))
+                                    return;
+                                disposeExecCall();
+                                if (closeIfParallelStepComplete())
+                                    return;
+                                continue;
+                            }
+                            if (decision === "hold") {
+                                // Owed like any exec the host runs: heartbeats, and a fresh turn's cancel.
+                                sessionManager.registerPending(request.id, session, request.resultField, request.toolName, false, request.resultMetadata);
+                                holdExec(order, { callId, execId: request.id, frame, request, pending: session.pending.get(request.id) });
+                                trace(`step-order: HELD execId=${request.id} toolName=${request.toolName} ` +
+                                    `callId=${callId.replace(/\r?\n/g, "\\n")} held=${order.held.length}`);
+                                // It counts toward this step's listed calls and runs in a later host step.
+                                disposeParallelCall(callId, true);
+                                if (closeIfParallelStepComplete())
+                                    return;
+                                continue;
+                            }
+                            runExec(order, callId, request.id, isFileChangeCall(order, callId) && request.resultField === "read_result");
+                        }
                     }
                     const parsed = parseExecServerMessage(esm, session.hostToolDialect);
                     if (parsed) {
@@ -5144,7 +6082,7 @@ export async function pump(session, controller, ids, abortSignal) {
                                     await writeWithBackpressure(session.stream, message, `runtime MCP read reply id=${esmId}`);
                                 if (displayCallId)
                                     session.displayToolCalls.delete(displayCallId);
-                                disposeParallelCall(displayCallId);
+                                disposeExecCall();
                                 if (closeIfParallelStepComplete())
                                     return;
                                 continue;
@@ -5177,7 +6115,7 @@ export async function pump(session, controller, ids, abortSignal) {
                         if (editCall && [...session.pending.values()].some(pending => pending.resultMetadata?.correlatedEditCallId === displayCallId)) {
                             if (!await rejectExec(parsed, "Wait for the host-authorized edit read before sending its replacement.", "edit read authorization pending"))
                                 return;
-                            disposeParallelCall(displayCallId);
+                            disposeExecCall();
                             if (closeIfParallelStepComplete())
                                 return;
                             continue;
@@ -5204,7 +6142,7 @@ export async function pump(session, controller, ids, abortSignal) {
                         if (parsed.localError) {
                             if (!await rejectExec(parsed, parsed.localError, "invalid mapping"))
                                 return;
-                            disposeParallelCall(displayCallId);
+                            disposeExecCall();
                             if (closeIfParallelStepComplete())
                                 return;
                             continue;
@@ -5224,7 +6162,7 @@ export async function pump(session, controller, ids, abortSignal) {
                                 trace(`exec: dropped ${toollessText.length} chars of tool-less narration before refused id=${parsed.id}`);
                                 toollessText = "";
                             }
-                            disposeParallelCall(displayCallId);
+                            disposeExecCall();
                             if (closeIfParallelStepComplete())
                                 return;
                             continue;
@@ -5241,7 +6179,7 @@ export async function pump(session, controller, ids, abortSignal) {
                                     + "Do not retry this write with the same bytes.";
                                 if (!await rejectExec(parsed, reason, "binary write unsupported"))
                                     return;
-                                disposeParallelCall(displayCallId);
+                                disposeExecCall();
                                 if (closeIfParallelStepComplete())
                                     return;
                                 continue;
@@ -5254,19 +6192,30 @@ export async function pump(session, controller, ids, abortSignal) {
                                     + "Do not retry this write with the same bytes.";
                                 if (!await rejectExec(parsed, reason, "binary write not permitted"))
                                     return;
-                                disposeParallelCall(displayCallId);
+                                disposeExecCall();
                                 if (closeIfParallelStepComplete())
                                     return;
                                 continue;
                             }
                             const workspaceRoot = workspaceRootFromRequestContext(session.requestContext);
                             const projectDir = ensureOpencodeProjectDir(workspaceRoot);
-                            const target = remapCursorImageWritePath(binaryWrite.path, {
+                            const remapped = remapCursorImageWritePath(binaryWrite.path, {
                                 workspaceRoot,
                                 projectDir,
                             });
+                            // Neither kind of uncorrelated write names a call. A generated image's
+                            // write runs inside its GenerateImage call, which Cursor completes only
+                            // after reading this write's result; a Run's input images are Cursor's
+                            // own copies, never completed, and repeat byte-identical on a resume.
+                            const imageHash = imageContentHash(binaryWrite.data);
+                            const generateImageCallId = displayCallId ? undefined : openGenerateImageCallId(session);
+                            const inputImage = !displayCallId && !generateImageCallId && !!session.historyImages
+                                && runHasHistoryImage(session.historyImages, imageHash);
+                            let target = remapped;
                             let imageId;
                             try {
+                                if (inputImage)
+                                    target = distinctInputImagePath(remapped, binaryWrite.data, imageHash);
                                 imageId = stageCursorImage({
                                     path: target,
                                     projectDir,
@@ -5276,12 +6225,51 @@ export async function pump(session, controller, ids, abortSignal) {
                                 });
                             }
                             catch (error) {
-                                if (!await rejectExec(parsed, error.message, "binary write too large"))
+                                const reason = error.message;
+                                if (inputImage) {
+                                    // Cursor ignores a copy's WriteResult. Keep its failure notice
+                                    // before replying, so a failed reply cannot lose the note too.
+                                    const note = inputImageCopyNote({ path: remapped }, reason, { stagingRefused: true });
+                                    if (note) {
+                                        if (session.stream.isClosed()) {
+                                            if (session.openCodeSessionId) {
+                                                appendUndeliveredHostNotes(session.openCodeSessionId, [{ notes: [note], order: nextHostNoteOrder++ }]);
+                                            }
+                                        }
+                                        else if (!await injectHostNotes(session, [note]))
+                                            return;
+                                    }
+                                }
+                                // Queued input copies need no reply once Cursor ended the Run.
+                                if (!(inputImage && session.stream.isClosed())
+                                    && !await rejectExec(parsed, reason, "binary write not staged"))
                                     return;
-                                disposeParallelCall(displayCallId);
+                                disposeExecCall();
                                 if (closeIfParallelStepComplete())
                                     return;
                                 continue;
+                            }
+                            // Cursor CLI's agent fires the write of an input image's copy and ignores
+                            // its result, so Cursor may finish the turn and close the Run while the
+                            // host still asks to save it. Reply now, as that client would; the
+                            // permission-gated save still runs as the host step and writes nothing back.
+                            if (inputImage) {
+                                const beforeReply = lastFrameArrival();
+                                try {
+                                    // A Run Cursor already ended (its frames queued while the host
+                                    // saved an earlier image) cannot take the reply, and needs none.
+                                    if (!session.stream.isClosed()) {
+                                        if (!await writeExecFrames([imageWriteSuccessFrame(parsed.id, target, binaryWrite.data.length)], `answer input image write id=${parsed.id}`))
+                                            return;
+                                        invalidateResumeCheckpoint(session, beforeReply, true);
+                                    }
+                                }
+                                catch (error) {
+                                    if (!session.stream.isClosed())
+                                        throw error;
+                                    trace(`exec: Cursor ended the Run before the input-image reply id=${parsed.id}; it never reads it`);
+                                }
+                                trace(`recovery: input-image write answered at once; Cursor neither waits for nor completes it execId=${parsed.id}`);
                             }
                             if (displayCallId)
                                 session.displayToolCalls.delete(displayCallId);
@@ -5296,11 +6284,16 @@ export async function pump(session, controller, ids, abortSignal) {
                                 path: target,
                                 binaryWriteBytes: undefined,
                                 imageByteLength: binaryWrite.data.length,
-                            });
+                                ...(generateImageCallId ? { generateImageCallId } : {}),
+                                ...(inputImage ? { inputImage: true } : {}),
+                                // Cursor's own path, which the model was given, when the copy went beside it.
+                                ...(target !== remapped ? { requestedPath: remapped } : {}),
+                            }, inputImage);
                             const toolCallId = `cursor_${session.sessionId}_${parsed.id}`;
                             trace(`exec: binary write STAGED toolCallId=${toolCallId} ` +
                                 `requested=${JSON.stringify(binaryWrite.path)} target=${JSON.stringify(target)} ` +
-                                `bytes=${binaryWrite.data.length}`);
+                                `bytes=${binaryWrite.data.length} kind=${inputImage ? "input-image"
+                                    : generateImageCallId ? `generated callId=${generateImageCallId.replace(/\r?\n/g, "\\n")}` : "uncorrelated"}`);
                             emittedHostTools++;
                             closeOpenSpans();
                             safeEnqueue({
@@ -5330,7 +6323,7 @@ export async function pump(session, controller, ids, abortSignal) {
                                 `advertised=[${advertisedToolNames.join(",")}]`);
                             if (!await rejectExec(parsed, reason, "unavailable tool"))
                                 return;
-                            disposeParallelCall(displayCallId);
+                            disposeExecCall();
                             if (closeIfParallelStepComplete())
                                 return;
                             continue;
@@ -5346,7 +6339,7 @@ export async function pump(session, controller, ids, abortSignal) {
                                 `permitted=[${[...permittedToolNames].sort().join(",")}]`);
                             if (!await rejectExec(parsed, reason, "not permitted this turn"))
                                 return;
-                            disposeParallelCall(displayCallId);
+                            disposeExecCall();
                             if (closeIfParallelStepComplete())
                                 return;
                             continue;
@@ -5361,7 +6354,7 @@ export async function pump(session, controller, ids, abortSignal) {
                             session.planReviewDeclined = true;
                             if (displayCallId)
                                 session.displayToolCalls.delete(displayCallId);
-                            disposeParallelCall(displayCallId);
+                            disposeExecCall();
                             if (closeIfParallelStepComplete())
                                 return;
                             continue;
@@ -5371,7 +6364,7 @@ export async function pump(session, controller, ids, abortSignal) {
                         if (await rejectMissingReadTarget(parsed)) {
                             if (displayCallId)
                                 session.displayToolCalls.delete(displayCallId);
-                            disposeParallelCall(displayCallId);
+                            disposeExecCall();
                             if (closeIfParallelStepComplete())
                                 return;
                             continue;
@@ -5385,7 +6378,7 @@ export async function pump(session, controller, ids, abortSignal) {
                                 return;
                             if (displayCallId)
                                 session.displayToolCalls.delete(displayCallId);
-                            disposeParallelCall(displayCallId);
+                            disposeExecCall();
                             if (closeIfParallelStepComplete())
                                 return;
                             continue;
@@ -5399,7 +6392,7 @@ export async function pump(session, controller, ids, abortSignal) {
                                 return;
                             if (displayCallId)
                                 session.displayToolCalls.delete(displayCallId);
-                            disposeParallelCall(displayCallId);
+                            disposeExecCall();
                             if (closeIfParallelStepComplete())
                                 return;
                             continue;
@@ -5448,6 +6441,7 @@ export async function pump(session, controller, ids, abortSignal) {
                         }
                         // tc.input is already a JSON string (LanguageModelV3ToolCall.input).
                         trace(`exec: EMITTED tool-call toolCallId=${tc.toolCallId} toolName=${tc.toolName} inputLen=${tc.input.length}`);
+                        trace(`recovery: host-call-emitted hostSessionId=${session.openCodeSessionId} sessionId=${session.sessionId} toolCallId=${tc.toolCallId}`);
                         // Kept until now so an edit whose write the provider refused still shows Cursor's failure.
                         if (parsed.resultField === "write_result" && displayCallId)
                             session.editToolCalls?.delete(displayCallId);
@@ -5490,7 +6484,7 @@ export async function pump(session, controller, ids, abortSignal) {
                             failRunProtocol("Cursor unsupported exec deny reply failed", RUN_REPLY_FAILED);
                         }
                         trace(`exec: SOFT-DENIED ${variant.requestName} id=${esmId}`);
-                        disposeParallelCall(displayCallId);
+                        disposeExecCall();
                         if (closeIfParallelStepComplete())
                             return;
                         continue;
@@ -5540,6 +6534,9 @@ export async function pump(session, controller, ids, abortSignal) {
                             ...(session.sessionEditsDenied ? { sessionEditsDenied: true } : {}),
                             sessionPermissionsUnavailable: session.sessionPermissionsUnavailable,
                             workspaceRoot: workspaceRootFromRequestContext(session.requestContext),
+                            ...(session.hostToolDialect?.filePathKey
+                                ? { hostFilePathKey: session.hostToolDialect.filePathKey }
+                                : {}),
                         });
                     }
                     catch {
@@ -5687,10 +6684,106 @@ export async function pump(session, controller, ids, abortSignal) {
                     continue;
                 }
                 if (handled.outcome === "bridged" && handled.createPlan) {
-                    // A host plan-stage tool, the host plan_exit review of the plan the
-                    // provider already wrote, or the emulated `question` prompt after that
-                    // write. All hold Cursor's query open until the host answers.
+                    // Host plan-stage (write+review together), or a preliminary host write/
+                    // patch whose success queues review. Cursor's query stays open.
                     const plan = handled.createPlan;
+                    if (session.queuedCreatePlanAction || [...session.pending.values()].some(pending => pending.resultField === CREATE_PLAN_RESULT_FIELD)) {
+                        await writeWithBackpressure(session.stream, buildCreatePlanInteractionReply(handled.id, {
+                            error: { error: "Finish the pending CreatePlan before recording another plan." }, plan_uri: "",
+                        }), `create_plan already pending id=${handled.id}`);
+                        disposeParallelCall(handled.toolCallId);
+                        if (closeIfParallelStepComplete())
+                            return;
+                        continue;
+                    }
+                    if (plan.persistence) {
+                        const planUri = plan.planUri ?? "";
+                        const planPath = typeof plan.planPath === "string" ? plan.planPath.trim() : "";
+                        const markdown = typeof plan.markdown === "string" ? plan.markdown : "";
+                        const writeExecId = session.nextBridgedExecId++;
+                        const writeToolCallId = `cursor_${session.sessionId}_${writeExecId}`;
+                        const after = plan.persistence.afterWrite;
+                        const recorded = recordPlanOperation(session.openCodeSessionId, {
+                            interactionId: handled.id,
+                            ...(plan.toolCallId ? { createPlanToolCallId: plan.toolCallId } : {}),
+                            hostCallId: writeToolCallId,
+                            planPath,
+                            planUri,
+                            markdown,
+                            phase: "write",
+                            bridgeKind: plan.bridge.kind,
+                            afterWrite: after.kind,
+                            ...(after.kind === "review" ? { reviewToolName: after.toolName } : {}),
+                        });
+                        if (!recorded.ok) {
+                            try {
+                                await writeWithBackpressure(session.stream, buildCreatePlanInteractionReply(handled.id, {
+                                    error: { error: recorded.error },
+                                    plan_uri: "",
+                                }), `create_plan write refused id=${handled.id}`);
+                            }
+                            catch (error) {
+                                rethrowTransportWriteFailure(error);
+                                failRunProtocol("Cursor interaction reply failed", RUN_REPLY_FAILED);
+                            }
+                            if (after.kind === "hold")
+                                session.planReviewDeclined = true;
+                            disposeParallelCall(handled.toolCallId);
+                            if (closeIfParallelStepComplete())
+                                return;
+                            continue;
+                        }
+                        // Await the receipt before emitting a mutating host call.
+                        try {
+                            await persistPlanOperations(session);
+                        }
+                        catch (error) {
+                            clearPlanOperation(session.openCodeSessionId, writeToolCallId);
+                            throw error;
+                        }
+                        // The disk save can outlive Stop, cancellation, or a retired Run.
+                        // No host mutation has been emitted yet, so abandon this receipt.
+                        if (session.hostInterrupted || session.closed || abortSignal?.aborted || !session.allowTools
+                            || !fileToolNames().has(plan.persistence.toolName) || isPlanTurnEnding()) {
+                            clearPlanOperation(session.openCodeSessionId, writeToolCallId);
+                            await persistPlanOperations(session);
+                            if (session.hostInterrupted)
+                                stopForHostInterrupt();
+                            return;
+                        }
+                        sessionManager.registerPending(writeExecId, session, CREATE_PLAN_RESULT_FIELD, plan.persistence.toolName, false, {
+                            interactionId: handled.id,
+                            createPlanToolCallId: plan.toolCallId,
+                            createPlanBridgeKind: plan.bridge.kind,
+                            createPlanPhase: "write",
+                            createPlanAfterWrite: after.kind,
+                            ...(after.kind === "review" ? { createPlanReviewToolName: after.toolName } : {}),
+                            createPlanQuestion: plan.questionInput?.questions[0]?.question ?? "",
+                            planUri,
+                            ...(planPath ? { planPath } : {}),
+                            ...(markdown ? { planMarkdown: markdown } : {}),
+                            ...(plan.planReview ? { planReview: plan.planReview } : {}),
+                        });
+                        trace(`interaction_query: BRIDGED create_plan write id=${handled.id} bridge=${plan.bridge.kind} ` +
+                            `hostTool=${plan.persistence.toolName} writeToolCallId=${writeToolCallId} ` +
+                            `after=${after.kind} planUri=${planUri || "(none)"} ` +
+                            `cursorToolCallId=${plan.toolCallId || "(none)"}`);
+                        emittedHostTools++;
+                        closeOpenSpans();
+                        replaySafety.markBarrier("stateful-interaction");
+                        safeEnqueue({
+                            type: "tool-call",
+                            toolCallId: writeToolCallId,
+                            toolName: plan.persistence.toolName,
+                            input: JSON.stringify(plan.persistence.input),
+                        });
+                        if (finishStepOrContinue({
+                            callId: plan.toolCallId || writeToolCallId,
+                            humanGated: false,
+                        }))
+                            return;
+                        continue;
+                    }
                     const staged = plan.bridge.kind === "stage" ? createPlanStageInput(plan.args) : undefined;
                     const planUri = staged?.plan_uri ?? plan.planUri ?? "";
                     const input = staged ?? plan.questionInput ?? {};
@@ -5699,6 +6792,7 @@ export async function pump(session, controller, ids, abortSignal) {
                         interactionId: handled.id,
                         createPlanToolCallId: plan.toolCallId,
                         createPlanBridgeKind: plan.bridge.kind,
+                        createPlanPhase: "review",
                         createPlanQuestion: plan.questionInput?.questions[0]?.question ?? "",
                         planUri,
                         ...(typeof plan.planPath === "string" && plan.planPath.trim()
@@ -5741,7 +6835,7 @@ export async function pump(session, controller, ids, abortSignal) {
             else if (kv) {
                 // KV blob channel: ack set_blob / answer get_blob, then keep pumping.
                 // Not replying hangs the turn — see protocol/kv.ts.
-                trace(`kv frame raw: gunzippedLen=${payload.length} id=${kv.id ?? "?"} ` +
+                traceVerbose(`kv frame raw: gunzippedLen=${payload.length} id=${kv.id ?? "?"} ` +
                     `get=${!!kv.get_blob_args} set=${!!kv.set_blob_args} ` +
                     `getBlobIdLen=${kv.get_blob_args?.blob_id?.length ?? "-"} ` +
                     `setBlobIdLen=${kv.set_blob_args?.blob_id?.length ?? "-"} ` +
@@ -5749,12 +6843,13 @@ export async function pump(session, controller, ids, abortSignal) {
                 const handled = handleKvServerMessage(kv, session);
                 // Content-as-id reads are answered by echoing the id back (`echoed`); only a
                 // hash we cannot serve means the checkpoint references state we lost.
-                if (handled?.kind === "get" && !handled.found && !handled.echoed)
+                const missed = handled?.kind === "get" && !handled.found && !handled.echoed;
+                if (missed)
                     blobMiss = true;
                 if (handled) {
                     try {
                         await writeWithBackpressure(session.stream, handled.reply, `KV ${handled.kind}_blob reply id=${handled.id}`);
-                        trace(`kv replied: kind=${handled.kind} id=${handled.id} blobId=${handled.blobIdHex.slice(0, 16)}… ` +
+                        (missed ? trace : traceVerbose)(`kv replied: kind=${handled.kind} id=${handled.id} blobId=${handled.blobIdHex.slice(0, 16)}… ` +
                             `found=${handled.found} echoed=${!!handled.echoed} ` +
                             `replyBytes=${handled.reply.length} replyBlobBytes=${handled.replyBlobBytes} ` +
                             `sessionBlobs=${session.blobs.size} convBlobs=${conversationBlobCount(session.conversationId)}`);
@@ -5823,6 +6918,8 @@ export async function pump(session, controller, ids, abortSignal) {
         // handled above.
     }
 }
+/** Held exec frames dispatched again on release (`src/step-order.ts`). */
+const redispatchedFrames = new WeakSet();
 /** Normalize protobufjs bytes / Buffer / number[] into a Uint8Array. */
 function normalizeCheckpointBytes(raw) {
     if (raw instanceof Uint8Array)
@@ -6067,7 +7164,7 @@ export async function decodeTrailingToolImages(session, results, signal, maxByte
     for (const result of results) {
         signal?.throwIfAborted();
         const pending = result.sessionId === session.sessionId ? session.pending.get(result.execId) : undefined;
-        if (!session.supportsImages || result.error || !result.media?.length || !pending || pending.bridged
+        if (result.error || !result.media?.length || !pending || pending.bridged
             || (pending.resultField !== "read_result" && pending.resultField !== "mcp_result")) {
             decoded.push(result);
             continue;
@@ -6364,17 +7461,42 @@ export function estimateTokens(chars) {
         return 0;
     return Math.ceil(chars / 4);
 }
+/** Characters of model output in a part streamed to the host. */
+function streamedOutputChars(part) {
+    if (part.type === "text-delta" || part.type === "reasoning-delta")
+        return part.delta.length;
+    if (part.type === "tool-call" && !part.providerExecuted)
+        return part.input.length;
+    return 0;
+}
+function checkpointObservation(session, frame) {
+    const arrived = frameArrival(frame);
+    const mediaAfter = session.occupancyMediaAfterFrame;
+    return {
+        // A pump can resume on a queued duplicate received before host results.
+        // Only an inbound step-start or a different Run advances the observation.
+        boundary: `${session.runId ?? session.sessionId}:${session.cacheDiagnostics?.stepStarts ?? 0}`,
+        model: session.cacheDiagnostics?.modelId,
+        // Like a resume checkpoint, only a later, acknowledged checkpoint holds the media.
+        bypass: mediaAfter !== undefined && (arrived === undefined || arrived > mediaAfter)
+            && !session.unacknowledgedHostResults?.length,
+    };
+}
 /**
- * Add the catalog-priced cost for a finished Run to its session's ledger. Called
- * once per `TurnEnded`, including Runs no OpenCode step reports (a drained
- * prior Run, a progress-only continuation); a later priced turn-end attempts to settle it.
+ * Add the catalog-priced cost and output tokens for a finished Run to its
+ * session's ledger. Called once per `TurnEnded`, including Runs no OpenCode step
+ * reports (a drained prior Run, a progress-only continuation); a later turn-end
+ * attempts to settle them.
  */
 function recordTurnEndedCost(session, turnEnded) {
-    const realUsd = turnEndedCostUsd(session.billing.cost, cursorUsageCountersFromTurnEnded(turnEnded), session.tokenDetails?.usedTokens ?? 0);
-    if (realUsd === undefined)
-        return;
-    billingLedger.recordReal(session.billing.key, realUsd, session.billing);
-    trace(`billing: turn real=${realUsd.toFixed(6)} key=${session.billing.key}`);
+    const counters = cursorUsageCountersFromTurnEnded(turnEnded);
+    const realUsd = turnEndedCostUsd(session.billing.cost, counters, session.tokenDetails?.usedTokens ?? 0);
+    billingLedger.recordReal(session.billing.key, realUsd ?? 0, session.billing, {
+        output: counters.outputTokens,
+        reasoning: counters.reasoningTokens,
+    });
+    trace(`billing: turn real=${realUsd === undefined ? "unpriced" : realUsd.toFixed(6)} ` +
+        `output=${counters.outputTokens} reasoning=${counters.reasoningTokens} key=${session.billing.key}`);
 }
 /** Preserve exact request-local Cursor counters as diagnostics. */
 export function cursorTurnEndedProviderMetadata(te, tokenDetails, contextSource) {
@@ -6683,7 +7805,8 @@ export async function refreshHeldSessionToolCatalog(session, callOptions) {
             `tools=${previousAdvertised}→${cursorTools.length}`);
     }
 }
-function extractTools(callOptions) {
+/** Exported for tests. */
+export function extractTools(callOptions) {
     const tools = callOptions.tools;
     if (!tools || tools.length === 0) {
         trace("extractTools: callOptions.tools empty/missing");
@@ -6701,7 +7824,7 @@ function extractTools(callOptions) {
             out.push({ name: any.name, description: any.description, inputSchema: schema });
         }
     }
-    trace(`extractTools: ${tools.length} incoming → ${out.length} advertised [${out.map((t) => t.name).join(",")}]`);
+    traceToolList(tools.length, out);
     return out;
 }
 /** Exported for tests — AI SDK V3 span ends that must precede finish / tool-call. */
@@ -6860,6 +7983,7 @@ export function resetTurnStateForTests() {
     mirroredTodosBySession.clear();
     resetHeldHistoryImagesForTests();
     undeliveredHostNotesBySession.clear();
+    interruptedRunHostNotesBySession.clear();
     steerAnsweringRuns.clear();
     resetHostSteersForTests();
     hostNoteInjectionsBySession.clear();

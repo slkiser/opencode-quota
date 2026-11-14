@@ -22,6 +22,12 @@ export declare function modelInfoToConfig(mi: ModelInfo, options?: {
     thinkingSuffix?: boolean;
     contextTier?: ContextTier;
     variants?: ModelVariant[];
+    /**
+     * Variants this entry publishes. Defaults to `variants`; `modelsToConfig`
+     * passes the speed group's advertised slice so a tier entry's `reasoning`
+     * reflects only the choices it actually offers.
+     */
+    advertisedVariants?: ModelVariant[];
     fast?: boolean;
 }): Record<string, any>;
 export declare function modelsToConfig(models: ModelInfo[]): Record<string, any>;

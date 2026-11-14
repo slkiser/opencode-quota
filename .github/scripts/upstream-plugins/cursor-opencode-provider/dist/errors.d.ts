@@ -40,6 +40,11 @@ export declare class CursorProviderError extends Error {
     readonly hostRetryable?: boolean;
     /** What the failed attempt did that a replay inside the Run would repeat. */
     replayBarrier?: "output-only" | "stateful";
+    /**
+     * The attempt's only barriers were Cursor's echoes of the Run's own injections: a replay inside
+     * the Run is still unsafe, but a history rebuild may represent them (`canRebaseFromHistory`).
+     */
+    replayBarrierEchoesOnly?: boolean;
     constructor(message: string, options: CursorProviderErrorOptions);
 }
 /**
@@ -100,6 +105,8 @@ export declare class CursorRetryExhaustedError extends CursorProviderError {
     readonly attempts: number;
     constructor(attempts: number, last: CursorProviderError);
 }
+/** A local name-resolution/routing failure, including a fetch wrapper's cause. */
+export declare function offlineNetworkCode(error: unknown): string | undefined;
 export declare function isTransientGrpcStatus(status: number | string): boolean;
 export declare function isAuthGrpcStatus(status: number | string): boolean;
 export declare function cursorHttpError(operation: string, statusCode: number, diagnostics?: Omit<CursorErrorDiagnostics, "statusCode">): CursorProviderError;

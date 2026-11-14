@@ -1,14 +1,15 @@
 import type { BidiStream } from "./transport/connect.js";
 import { type CursorProviderError } from "./errors.js";
 import { type SessionActivitySource } from "./activity.js";
-import type { HostSubagentCatalog, HostToolDialect, OpencodeToolDef, ToolAliasRegistry } from "./protocol/tools.js";
+import type { HostSubagentCatalog, HostToolDialect, OpencodeToolDef, ParsedExecRequest, ToolAliasRegistry } from "./protocol/tools.js";
 import type { CursorConversationTokenDetails } from "./protocol/token-details.js";
 import type { HostNoteBatch } from "./protocol/host-notes.js";
 import type { RunHistoryImages } from "./protocol/sent-history-images.js";
 import type { ParallelStepState } from "./parallel-step.js";
+import type { StepOrderState } from "./step-order.js";
 import type { OpenCodeModelCost } from "./pricing.js";
 import type { RunCostEstimate } from "./billing.js";
-import type { ReplaySafetyState } from "./replay-safety.js";
+import type { ReplaySafetyState, RunInjection } from "./replay-safety.js";
 export type Frame = {
     flags: number;
     payload: Uint8Array;
@@ -63,6 +64,11 @@ export type PendingExec = {
      * finds this Run so the turn goes on.
      */
     aborted?: boolean;
+    /**
+     * Cursor already has this exec's reply (it never waits for a copy of an input
+     * image). The host step still runs; its result writes nothing back.
+     */
+    answered?: boolean;
 };
 export type ContinuationTerminalReason = "host-interrupted" | "hard-cap-expired" | "remote-clean-close" | "remote-error" | "result-write-failed" | "ambiguous-partial-write" | "heartbeat-write-failed" | "reply-write-failed" | "process-disposed" | "superseded-by-new-run" | "open-session-cap-exceeded";
 export type SessionCloseReason = ContinuationTerminalReason | "ordinary-cleanup" | "turn-ended" | "initial-write-failed";
@@ -103,6 +109,12 @@ export type DeliveryOutcome = {
 };
 export type CursorSession = {
     /**
+     * Media can change token occupancy without proportional character growth.
+     * The first measured checkpoint that arrives after this frame, with every
+     * delivered result acknowledged, admits its reading as a new baseline.
+     */
+    occupancyMediaAfterFrame?: number;
+    /**
      * Stable per-Run-stream id (distinct from Cursor's own conversation_id).
      * Tags toolCallIds so two concurrent Run streams with overlapping exec ids
      * (Cursor resets them per stream) can't cross-deliver results.
@@ -121,6 +133,10 @@ export type CursorSession = {
     cacheDir?: string;
     /** Latest eligible checkpoint emitted by this Run attempt. */
     resumeCheckpoint?: Uint8Array;
+    /** History images `resumeCheckpoint` holds: the Run's own and those sent before it arrived. */
+    resumeCheckpointImages?: string[];
+    /** An answered step's result was delivered; the next pump plays what Cursor queued meanwhile. */
+    answeredContinuation?: boolean;
     /**
      * This Run sent a user message or tool result after its last checkpoint:
      * recovery must not resume earlier state that lacks the delivered input.
@@ -130,10 +146,35 @@ export type CursorSession = {
     checkpointRevokedByHostResult?: boolean;
     /** Ignore queued checkpoints received before the latest message/result delivery. */
     resumeCheckpointAfterFrame?: number;
+    /** Results sent locally but not yet acknowledged by a matching server completion. */
+    unacknowledgedHostResults?: Array<{
+        callId?: string;
+        afterFrame: number;
+    }>;
     /** Stateful replay barriers survive host tool-step boundaries on this Run. */
     replaySafety?: ReplaySafetyState;
+    /** Steers and host notes this Run injected whose echo has not arrived yet. */
+    injections?: RunInjection[];
     /** A delivered plan result refused execution; terminate this Run without continuing. */
     planReviewDeclined?: boolean;
+    /**
+     * CreatePlan follow-up after a successful host plan write: emit the review
+     * tool, or acknowledge without asking, before reading further Cursor frames.
+     */
+    queuedCreatePlanAction?: {
+        kind: "review" | "ack" | "hold";
+        interactionId: number;
+        createPlanToolCallId?: string;
+        bridgeKind: string;
+        planUri: string;
+        planPath: string;
+        markdown?: string;
+        planReview?: string;
+        toolName?: "plan_exit" | "question";
+        questionInput?: unknown;
+        createPlanQuestion?: string;
+        receiptHostCallId?: string;
+    };
     /** History images this Run's checkpoints hold or may hold; absent for a Run outside an OpenCode session. */
     historyImages?: RunHistoryImages;
     /** Last checkpoint-derived context snapshot, independent of retry eligibility. */
@@ -201,8 +242,6 @@ export type CursorSession = {
     toolCatalog?: OpencodeToolDef[];
     /** Configured MCP server ids used to split flattened host tool names. */
     knownMcpServers?: string[];
-    /** The Run's model accepts images, so held-Run exec results may carry them. */
-    supportsImages?: boolean;
     stream: BidiStream;
     frames: AsyncIterator<Frame>;
     /** An iterator read retained across an idle-guard timeout. */
@@ -225,6 +264,8 @@ export type CursorSession = {
     parallelStep?: ParallelStepState;
     /** Resolved call ids from prior steps of this Run — ignore late completions. */
     priorParallelStepCallIds?: Set<string>;
+    /** Model-order holds for a step that changes a file (`src/step-order.ts`). */
+    stepOrder?: StepOrderState<Frame, ParsedExecRequest>;
     pending: Map<number, PendingExec>;
     /**
      * Cursor display tool calls (tool_call_started) awaiting either an exec or a
@@ -317,6 +358,8 @@ export type CursorSession = {
     /** The host stopped the turn (OpenCode 2 interrupt); the Run is being cancelled and must not be continued. */
     hostInterrupted?: string;
     reopenWithUserMessage?: (text: string, signal?: AbortSignal) => Promise<void>;
+    /** Send the current Run's request again on a new stream, which goes uncompressed once Cursor refused gzip. */
+    resendRunRequest?: (signal?: AbortSignal) => Promise<void>;
 };
 export declare function stoppedWith(session: CursorSession): string | undefined;
 type SessionManagerOptions = {
@@ -358,11 +401,18 @@ export declare class SessionManager {
      * @returns number of pendings dropped
      */
     abandonPending(session: CursorSession): number;
+    /**
+     * A held exec is about to be dispatched again (`src/step-order.ts`): drop
+     * the entry that kept it owed while it waited, without a tombstone, so its
+     * dispatch can register it afresh. False when that entry is gone (Stop, a
+     * fresh turn's cancel, Cursor's abort) and the exec must not run.
+     */
+    forgetHeldExec(session: CursorSession, execId: number, pending: unknown): boolean;
     /** Cursor withdrew this exec; returns false when it is not one the host still owes. */
     markExecAborted(session: CursorSession, execId: number): boolean;
     /**
      * Clear pendings that do not require a Cursor exec write: display-only bridged
-     * ones and execs Cursor aborted. Used when the host starts a fresh user turn
+     * ones, execs Cursor aborted and ones it already has the reply for. Used when the host starts a fresh user turn
      * instead of returning the result (e.g. human `continue` while a todowrite
      * mirror is outstanding).
      *
@@ -381,14 +431,18 @@ export declare class SessionManager {
     recordSemanticProgress(session: CursorSession, at?: number): void;
     recordHeartbeatWrite(session: CursorSession): void;
     /** Register that `session` is awaiting a result for `execId`. */
-    registerPending(execId: number, session: CursorSession, resultField: string, toolName?: string, bridged?: boolean, resultMetadata?: Record<string, unknown>): void;
+    registerPending(execId: number, session: CursorSession, resultField: string, toolName?: string, bridged?: boolean, resultMetadata?: Record<string, unknown>, answered?: boolean): void;
     /** The pending exec info for an id on a specific session, if still awaiting it. */
     pendingFor(sessionId: string, execId: number): PendingExec | undefined;
     classify(sessionId: string, execId: number): ContinuationClassification;
     claim(sessionId: string, execId: number): ContinuationClaim | ContinuationClassification;
     deliverClaim(claim: ContinuationClaim, frames: readonly Uint8Array[], 
     /** Called at each actual serialized write, before write() and its drain. */
-    beforeWrite?: () => void): Promise<DeliveryOutcome>;
+    beforeWrite?: () => void, 
+    /** A completed host phase queued the interaction's next phase instead of its final reply. */
+    options?: {
+        replyDeferred: boolean;
+    }): Promise<DeliveryOutcome>;
     /** Find the live session awaiting one of the given exec ids. */
     findByExecIds(sessionId: string, execIds: number[]): CursorSession | undefined;
     /** Mark an exec id as resolved (its result has been delivered). */
@@ -396,6 +450,15 @@ export declare class SessionManager {
     beginPump(session: CursorSession, owner: symbol): void;
     isPumpOwner(session: CursorSession, owner: symbol): boolean;
     endPump(session: CursorSession, owner: symbol): boolean;
+    /**
+     * Cursor can finish its turn and close the Run cleanly while the host still
+     * runs steps whose replies Cursor already has (copies of input images, which
+     * Cursor never waits for). Its last frames are queued for the next pump, so
+     * keep the Run: the step's result then plays them instead of rebuilding a Run
+     * from host history, which would send the images again.
+     */
+    private holdsOnlyAnsweredWork;
+    private holdAfterCleanClose;
     /**
      * Swap the live bidi Run while a pump is still pulling frames.
      * Callers must cancel the session heartbeat and wait for the old stream's

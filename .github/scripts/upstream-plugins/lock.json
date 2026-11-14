@@ -1,12 +1,12 @@
 {
   "plugins": {
     "cursor-opencode-provider": {
-      "npmUrl": "https://www.npmjs.com/package/cursor-opencode-provider/v/0.8.5",
+      "npmUrl": "https://www.npmjs.com/package/cursor-opencode-provider/v/0.8.7",
       "packageName": "cursor-opencode-provider",
-      "publishedAt": "2026-10-25T12:17:34.129Z",
+      "publishedAt": "2026-11-09T20:40:54.077Z",
       "referenceDir": ".github/scripts/upstream-plugins/cursor-opencode-provider",
       "repo": "oakimov/cursor-opencode-provider",
-      "version": "0.8.5"
+      "version": "0.8.7"
     },
     "opencode-agy-auth": {
       "npmUrl": "https://www.npmjs.com/package/%40anthonyhaussman/opencode-agy-auth/v/1.5.8-alpha.0",

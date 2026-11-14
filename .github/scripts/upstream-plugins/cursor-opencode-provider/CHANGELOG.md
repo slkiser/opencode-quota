@@ -2,6 +2,82 @@
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-11-09
+
+### Added
+
+- Claude Fable 5.2 pricing, context, and capability metadata from Cursor's model docs
+
+### Changed
+
+- `CURSOR_PROVIDER_DEBUG=1` no longer writes a line per wire frame and KV message (`pump frame`, `frame yield`, `kv frame raw`, `kv replied` unless the blob was missing, a held Run's `answered KV` and `queued a frame`); `CURSOR_PROVIDER_DEBUG=2` (or `verbose`) still does. With `CURSOR_PROVIDER_DEBUG_LOG_MODE=rotate`, `extractTools:` lists each distinct tool list once per log file and names it by `tools=<hash>` afterwards, again at least every 10 minutes ([#160](https://github.com/oakimov/cursor-opencode-provider/issues/160), [@nkoynov](https://github.com/nkoynov)).
+- Local test checks detect Linux, macOS and Windows capabilities; Windows can run the full suite through a local Linux-container engine without Cursor agent installed.
+- Cloud Agent setup installs the current OpenCode 1.x (`opencode1`) and 2.x (`opencode`) at install time. The live test loads the classic plugin on 1.x and `plugin-opencode2` on 2.x, and a missing binary for either major fails the run.
+
+### Fixed
+
+- Unwrapping host `<system-update>` notes now takes linear time, so a note with many unclosed `<system-update>` tags can no longer stall a turn (CodeQL `js/polynomial-redos`).
+- Image bursts no longer lose pending saves at the ninth image. Accepted images retain their bytes through saving; a shared 400 MiB payload budget refuses only new writes that do not fit. Refused copies of attached images also notify the model, immediately or on the next user turn if Cursor has ended the Run ([#165](https://github.com/oakimov/cursor-opencode-provider/issues/165), [#166](https://github.com/oakimov/cursor-opencode-provider/pull/166), [@nkoynov](https://github.com/nkoynov)).
+- New manual review payloads require a revision-matched evidence ledger and isolated-check exit record; preview and publication recheck retained evidence while preserving existing pending previews.
+- Debug and recovery logs retain recent diagnostics with OpenCode-style in-place trimming by default, or configurable numbered archives with `CURSOR_PROVIDER_DEBUG_LOG_MODE=rotate` ([#160](https://github.com/oakimov/cursor-opencode-provider/issues/160), [@nkoynov](https://github.com/nkoynov)).
+- Log rotation preserves archives when the active file cannot be renamed, and stale maintenance cleanup preserves replacement owners' locks ([#163](https://github.com/oakimov/cursor-opencode-provider/pull/163), [@nkoynov](https://github.com/nkoynov)).
+- A Run Cursor cuts right after a tool result now rebuilds from host history when it earlier delivered an early steer or host note that history still holds, instead of ending the turn as "automatic retry unsafe" ([#159](https://github.com/oakimov/cursor-opencode-provider/issues/159), [@nkoynov](https://github.com/nkoynov)).
+- That rebuild is no longer refused (`missing-host-results`) when Cursor earlier waited on a background shell: its polls of the shell's terminal record are answered by the provider, ran nothing on the host, and no longer count as tool calls without a result ([#159](https://github.com/oakimov/cursor-opencode-provider/issues/159), [@nkoynov](https://github.com/nkoynov)).
+- The same rebuild also proceeds after the provider itself answered the empty read before a new file's edit or a Task attachment read, provided history holds that call's result, or a read of a missing file ([#172](https://github.com/oakimov/cursor-opencode-provider/issues/172), [@nkoynov](https://github.com/nkoynov)).
+- A failed OpenCode 1.x download no longer leaves the previous binary in place and reports a successful install.
+- OpenCode 1.x model metadata now sets `reasoning` from reasoning variants too, not only `supports_thinking`, covering `deepseek-v41-flash-1017`, `claude-sonnet-5-5`, `claude-haiku-5-5` and `muse-wonder-1.0` ([#168](https://github.com/oakimov/cursor-opencode-provider/issues/168), [#169](https://github.com/oakimov/cursor-opencode-provider/pull/169), [@adonm](https://github.com/adonm)).
+- Linux isolated checks can run their nested sandbox tests after dropping privileges, allowing the full suite to pass before the separate live-test trust gate ([#161](https://github.com/oakimov/cursor-opencode-provider/pull/161)).
+- Review setup reports its read-only GitHub lookup accurately instead of claiming no GitHub call occurred ([#161](https://github.com/oakimov/cursor-opencode-provider/pull/161)).
+- Manual reviews preserve failed command statuses and exit codes alongside evidence of baseline or environment failures; publication supports bundled GitHub CLIs without `--slurp` ([#161](https://github.com/oakimov/cursor-opencode-provider/pull/161)).
+- Local test checks stop owned descendants before removing their source snapshot, including after a successful leader, SIGINT, SIGTERM, or repeated cancellation ([#161](https://github.com/oakimov/cursor-opencode-provider/pull/161)).
+- Live OpenCode smoke tests remove native runtime scratch files on exit while preserving pre-existing files in the configured temp root.
+- Isolated checks on macOS can write their source, home and temp directories when those live under the default temp directory, instead of every write failing while the run exits 0.
+
+## [0.8.6] - 2026-11-05
+
+### Added
+
+- DeepSeek V4.1 Flash 1017 pricing, context, and capability metadata from Cursor's model docs
+- Cloud Agent bootstrap, isolated PR checks, live-test harness, and GitHub App COMMENT review publication (`scripts/cloud-agent-install.sh`, `isolated-check.sh`, `review-publish.py`).
+- Recovery-only diagnostics (`CURSOR_PROVIDER_RECOVERY_DEBUG=1`) record interruption, recovery decisions, and host-call/result IDs without logging prompt or tool payloads.
+
+### Changed
+
+- Manual review findings require a named contract, reachable trigger, causal path, and consequence before publication ([#156](https://github.com/oakimov/cursor-opencode-provider/pull/156)).
+- Run messages of 1 KiB or more are gzip-compressed like Cursor CLI (~4× smaller); a gzip refusal retries once uncompressed for that process ([discussion #127](https://github.com/oakimov/cursor-opencode-provider/discussions/127)).
+- Gzip runs on zlib's thread pool so large Run uploads no longer stall the event loop (follow-up to [#133](https://github.com/oakimov/cursor-opencode-provider/pull/133)).
+- CreatePlan saves through an advertised host write/patch before execution review; only explicit Yes approves implementation ([#90](https://github.com/oakimov/cursor-opencode-provider/issues/90)).
+
+### Fixed
+
+- Publish CI enables user namespaces so isolation tests pass on ubuntu-latest.
+- Soft-deny background-shell probes no longer keep a tool step open ~5 minutes while Cursor delivers a host note ([#155](https://github.com/oakimov/cursor-opencode-provider/issues/155), [@nkoynov](https://github.com/nkoynov)).
+- Review harness: persistent private storage, re-review resolution, offline eval/ledger checks, `/usr/local/bin` OpenCode in the isolate, GitHub App token scoping, analysis receipts, and Linux orphan reaping ([#156](https://github.com/oakimov/cursor-opencode-provider/pull/156)).
+- Image input follows live model probes instead of Cursor's list flag (Grok 4.7, Composer 2.5, Kimi K2.7 Code; Kimi K3 text-only) ([#157](https://github.com/oakimov/cursor-opencode-provider/pull/157), [@thaoran](https://github.com/thaoran)).
+- Oversized conversation images are skipped with a note instead of failing the turn.
+- Stopping while preparing a tool image ends the held Run.
+- Followers of a denied or interrupted file change stay cancelled before tool-count discovery ([#154](https://github.com/oakimov/cursor-opencode-provider/pull/154), [@oakimov](https://github.com/oakimov)).
+- Tool steps close promptly when an edit reuses its permission-read call ID ([#152](https://github.com/oakimov/cursor-opencode-provider/pull/152), [@nkoynov](https://github.com/nkoynov)).
+- Held tool calls no longer stick after rejected reads, queued withdrawals, or post-split edit denials ([#152](https://github.com/oakimov/cursor-opencode-provider/pull/152)).
+- In a file-change step, later calls wait until the change finishes and cancel if it is denied ([#151](https://github.com/oakimov/cursor-opencode-provider/issues/151), [discussion #145](https://github.com/oakimov/cursor-opencode-provider/discussions/145), [@nkoynov](https://github.com/nkoynov)).
+- Host notes acknowledged during a tool wait survive restart ([#153](https://github.com/oakimov/cursor-opencode-provider/issues/153), [@nkoynov](https://github.com/nkoynov)).
+- OpenCode 2 mid-turn foreign compaction restores host notes on the next Cursor request ([#131](https://github.com/oakimov/cursor-opencode-provider/issues/131), [@nkoynov](https://github.com/nkoynov)).
+- Spurious conversation-only checkpoint spikes no longer force host compaction ([#139](https://github.com/oakimov/cursor-opencode-provider/issues/139)).
+- Input-image Runs resume after drops without re-saving copies every turn; same-name copies keep unique hashed names ([#138](https://github.com/oakimov/cursor-opencode-provider/issues/138), [#137](https://github.com/oakimov/cursor-opencode-provider/pull/137), [@nkoynov](https://github.com/nkoynov), [@moritzWa](https://github.com/moritzWa)).
+- Offline DNS/routing failures wait up to 3 h without spending the retry budget ([#142](https://github.com/oakimov/cursor-opencode-provider/issues/142), [#143](https://github.com/oakimov/cursor-opencode-provider/pull/143), [@moritzWa](https://github.com/moritzWa)).
+- Assistant messages estimate output/reasoning on tool steps and reconcile at turn-end ([#144](https://github.com/oakimov/cursor-opencode-provider/pull/144), [@nkoynov](https://github.com/nkoynov)).
+- Run requests advertise only gzip response compression ([@nkoynov](https://github.com/nkoynov)).
+- OpenCode 2 Location remounts resume the saved conversation instead of cold history ([@nkoynov](https://github.com/nkoynov)).
+- Evicted session bindings no longer restore stale Location snapshots ([#135](https://github.com/oakimov/cursor-opencode-provider/issues/135), [@nkoynov](https://github.com/nkoynov), [@oakimov](https://github.com/oakimov)).
+- Failed conversation saves invalidate the old snapshot without allocating; the next turn rebuilds from host history ([#135](https://github.com/oakimov/cursor-opencode-provider/issues/135)).
+- Managed shell output drops terminal-record footers and post-handoff stdout ([#128](https://github.com/oakimov/cursor-opencode-provider/pull/128), [#130](https://github.com/oakimov/cursor-opencode-provider/issues/130), [@oakimov](https://github.com/oakimov), [@nkoynov](https://github.com/nkoynov)).
+- OpenCode 2 rebases after another provider's successful summary ([#124](https://github.com/oakimov/cursor-opencode-provider/pull/124), [@moritzWa](https://github.com/moritzWa)).
+- OpenCode 2.1.4 waits for cold-cache model discovery before first selection ([#91](https://github.com/oakimov/cursor-opencode-provider/issues/91)).
+- Plan saves in host history keep their owed CreatePlan reply ([#125](https://github.com/oakimov/cursor-opencode-provider/pull/125)).
+- Completed inline tool-catalog lookups no longer block recovery after saved host results.
+- Delayed pre-result checkpoints cannot resume completed host work until Cursor acknowledges the result.
+- OpenCode 2 shell approvals survive disposal of another project's plugin setup ([#118](https://github.com/oakimov/cursor-opencode-provider/pull/118), [@nkoynov](https://github.com/nkoynov)).
+
 ## [0.8.5] - 2026-10-25
 
 ### Fixed

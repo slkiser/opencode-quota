@@ -21,9 +21,11 @@ export type CursorExecVariant = {
 export declare const CURSOR_EXEC_VARIANTS: readonly CursorExecVariant[];
 export declare function cursorExecVariantByRequestField(field: number): CursorExecVariant | undefined;
 export declare function cursorExecVariantByRequestName(name: string): CursorExecVariant | undefined;
+export declare function isExecRequestWithoutNewCall(field: number | undefined): boolean;
 export declare function describeCursorExecVariant(field: number | undefined): string;
 /**
  * `ForceBackgroundShellResult` / `ForceBackgroundSubagentResult` status.
- * Cursor CLI `ForceBackgroundStatus`: 0 unspecified, 1 ok, 2 error.
+ * Cursor CLI `ForceBackground{Shell,Subagent}Status`: 0 UNSPECIFIED,
+ * 1 ACCEPTED, 2 NOT_FOUND.
  */
 export declare const FORCE_BACKGROUND_STATUS_ERROR = 2;

@@ -148,18 +148,20 @@ export function decodeConversationTokenDetails(checkpoint) {
     }
 }
 export function cursorContextUsageMetadata(details, source = "checkpoint-current-run") {
+    const effectiveSource = details.rawUsedTokens !== undefined ? "checkpoint-held-spike" : source;
     const usedPercent = details.maxTokens > 0
         ? Math.max(0, Math.min(100, Math.round(details.usedTokens / details.maxTokens * 1_000) / 10))
         : undefined;
     const breakdown = currentCursorTokenBreakdown(details);
     return {
         contextUsageVersion: 2,
-        source,
-        stale: source === "checkpoint-previous-turn",
+        source: effectiveSource,
+        stale: effectiveSource !== "checkpoint-current-run",
         usedTokens: details.usedTokens,
         maxTokens: details.maxTokens,
         remainingTokens: Math.max(0, details.maxTokens - details.usedTokens),
         ...(usedPercent === undefined ? {} : { usedPercent }),
         ...(breakdown ? { breakdown } : {}),
+        ...(details.rawUsedTokens !== undefined ? { rawUsedTokens: details.rawUsedTokens } : {}),
     };
 }

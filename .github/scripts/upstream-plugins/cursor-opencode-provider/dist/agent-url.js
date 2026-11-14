@@ -3,7 +3,7 @@ import { fetchAgentUrl } from "./transport/connect.js";
 import { errorMessage, trace } from "./debug.js";
 import { CURSOR_API_HOST } from "./shared.js";
 import { processShared } from "./process-shared.js";
-import { CursorAuthError, CursorProtocolError, CursorProviderError, CursorServerError, CursorTransportError, toCursorProviderError, } from "./errors.js";
+import { CursorAuthError, CursorProtocolError, CursorProviderError, CursorServerError, CursorTransportError, offlineNetworkCode, toCursorProviderError, } from "./errors.js";
 const DEFAULT_API_BASE = `https://${CURSOR_API_HOST}`;
 // In-process memo of the region-specific Run stream origin (agentnUrl). Resolved
 // once per process, shared by every copy of this package that the host loads.
@@ -79,6 +79,7 @@ export async function resolveAgentUrl(token, options = {}) {
             const reason = errorMessage(err);
             trace(`agent-url: GetServerConfig failed (${reason}); no fallback agent host will be used`);
             const failure = toCursorProviderError(err, { replaySafe: true });
+            const networkCode = offlineNetworkCode(failure);
             return { failure: {
                     message: failure.message,
                     origin: failure.origin,
@@ -89,6 +90,9 @@ export async function resolveAgentUrl(token, options = {}) {
                     rstCode: failure.rstCode,
                     code: failure.code,
                     retryAfterMs: failure.retryAfterMs,
+                    // Share only the network code, not an arbitrary fetch error or its
+                    // module graph. Node fetch keeps DNS errors on cause, not on code.
+                    cause: networkCode ? { code: networkCode } : undefined,
                 } };
         }
         finally {

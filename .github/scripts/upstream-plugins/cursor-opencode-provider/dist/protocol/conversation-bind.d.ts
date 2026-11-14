@@ -1,6 +1,8 @@
 export declare const MAX_ACTIVE_CONVERSATION_BINDINGS = 256;
 export declare function resetConversationBindingsForTests(): void;
 export declare function hasConversationBinding(sessionKey: string): boolean;
+/** The conversation this process has bound the session to, without minting one. */
+export declare function boundConversationId(sessionKey: string): string | undefined;
 export declare function isActiveConversationBinding(sessionKey: string, conversationId: string): boolean;
 /** Restore a validated durable binding before resolving the next Run. */
 export declare function restoreConversationBinding(sessionKey: string, conversationId: string): void;

@@ -50,6 +50,7 @@ export declare function resumeEmittedStep(sessionKey: string, conversationId: st
 export declare function trackTurnProvenance(sessionKey: string, conversationId: string): void;
 export declare function getTurnProvenance(sessionKey: string): TurnProvenance | undefined;
 export declare function restoreTurnProvenance(sessionKey: string, value: TurnProvenance): void;
+export declare function forgetTurnProvenance(sessionKey: string): void;
 export declare function resetTurnProvenanceForTests(): void;
 export declare function serializeTurnProvenance(value: TurnProvenance): string;
 export declare function parseTurnProvenance(raw: string): TurnProvenance | undefined;

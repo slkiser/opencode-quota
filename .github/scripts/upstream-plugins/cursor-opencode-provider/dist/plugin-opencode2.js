@@ -9,16 +9,20 @@ import { announceHostSteer, forgetEarlySteerOfInbox, forgetEarlySteers, remember
 import { fetchOpenCodeWebSearchText, parseExaWebSearchResults, } from "./web-tools.js";
 import { armCursorShellCreate, captureCursorShellResult, captureCursorShellFailure, prepareCursorShellCreate, prepareCursorShellArgs, releaseCursorShellEnv, sanitizeRegisteredCursorShellOutput, } from "./shell-timeout.js";
 import { applyCursorProviderInventory, CURSOR_INTEGRATION_ID } from "./opencode2/catalog.js";
-import { applyCursorIntegration, requireCursorAccessToken, resolveCursorAccessToken, } from "./opencode2/integration.js";
+import { applyCursorIntegration, requireCursorAccessToken, } from "./opencode2/integration.js";
 import { exposeDirectMcpTools, rememberDirectMcpNamespaces } from "./opencode2/mcp-direct.js";
 import { registerTodoTools } from "./opencode2/todo-tools.js";
 import { registerCursorImageSaveTool } from "./opencode2/image-save-tool.js";
 import { OPENCODE_2_TOOL_DIALECT } from "./protocol/tools.js";
 import { clearSessionTodos } from "./todo-store.js";
 import { markCompactionSession } from "./compaction-marker.js";
+import { awaitHostHistoryRewrite, noteHostHistoryRewrite } from "./host-history-rewrite.js";
 import { getSessionDirectory, markSessionDirectory } from "./session-directory.js";
 import { rememberHostSkillFiles } from "./context/skills.js";
 import { trace } from "./debug.js";
+import { withAbortDeadline } from "./deadline.js";
+import { CursorAuthError, CursorProtocolError, CursorTransportError } from "./errors.js";
+import { processShared } from "./process-shared.js";
 import { loadSessionForPermissions, sessionRulesDenyEdits } from "./protocol/session-edits.js";
 import { cancelHostAgentModeSwitch, hostAgentSwitchPromptText, setHostAgentModeSwitch, } from "./host-agent-mode.js";
 import { clearActiveCursorMode, } from "./protocol/switch-mode.js";
@@ -49,24 +53,11 @@ async function loadModels(cacheDir, accessToken, forceRefresh = false) {
     const cached = await readCache(cacheDir);
     if (!forceRefresh && cached?.models.length && isCacheFresh(cached))
         return cached.models;
-    if (accessToken) {
-        try {
-            return await discoverModels(accessToken, cacheDir, {
-                baseURL: cursorApiBaseURL(),
-                forceRefresh,
-            });
-        }
-        catch {
-            // A forced refresh follows a credential switch. Do not bind a cache
-            // produced by the prior account to the new connection on failure.
-            if (forceRefresh)
-                return [];
-        }
-    }
-    if (forceRefresh)
-        return [];
-    // Preserve offline / stale-cache behavior rather than emptying the picker.
-    return cached?.models ?? [];
+    return discoverModels(accessToken, cacheDir, {
+        baseURL: cursorApiBaseURL(),
+        // An empty response can be cached; it must not pin later retries to [].
+        forceRefresh: forceRefresh || cached?.models.length === 0,
+    });
 }
 function toolExecutionID(event) {
     const id = event.id ?? event.callID;
@@ -92,6 +83,14 @@ function markCompactionAndOptions(event, isCompaction) {
     event.options ??= {};
     event.options[CURSOR_COMPACTION_OPTION] = isCompaction;
 }
+/** Every setup sees every Location's asks, so only the last observer releases them on dispose. */
+const sharedPermissionCalls = processShared("opencode2-permission-calls.v1", () => ({
+    calls: new Map(),
+    observers: 0,
+}));
+// A replacement setup may start after another observer recorded the decline.
+// Keep this bounded terminal evidence across setups and separate module graphs.
+const refusals = processShared("opencode2-tool-refusals.v1", () => new Map());
 const plugin = {
     id: "cursor.provider",
     server: CursorPlugin,
@@ -106,7 +105,6 @@ const plugin = {
         let disposeHostAgentModeSwitch;
         trace(`opencode2 plugin: setup directory=${workspaceRoot}`);
         const hasShellEnvHook = typeof ctx.shell?.hook === "function";
-        const refusals = new Map();
         const permissionCalls = new Map();
         const rememberRefusal = (id, refusal) => {
             refusals.delete(id);
@@ -114,23 +112,42 @@ const plugin = {
             while (refusals.size > 512)
                 refusals.delete(refusals.keys().next().value);
         };
+        let observingPermissions = false;
+        const observePermissionCalls = () => {
+            observingPermissions = true;
+            sharedPermissionCalls.observers++;
+            for (const [id, call] of sharedPermissionCalls.calls)
+                permissionCalls.set(id, call);
+        };
         const releasePermissionCalls = () => {
-            for (const call of permissionCalls.values())
-                releaseCursorShellEnv(call.callID);
             permissionCalls.clear();
+            if (!observingPermissions)
+                return;
+            observingPermissions = false;
+            if (--sharedPermissionCalls.observers > 0)
+                return;
+            for (const call of sharedPermissionCalls.calls.values())
+                releaseCursorShellEnv(call.callID);
+            sharedPermissionCalls.calls.clear();
+        };
+        const forgetPermissionCall = (id) => {
+            permissionCalls.delete(id);
+            sharedPermissionCalls.calls.delete(id);
         };
         const toolLifecycle = (event) => {
             const payload = eventPayload(event);
             if (event?.type === "permission.asked" && payload?.source?.type === "tool"
                 && typeof payload.source.id === "string" && payload.source.id.startsWith("cursor_")
                 && typeof payload.id === "string" && typeof payload.sessionID === "string") {
-                permissionCalls.set(payload.id, { sessionID: payload.sessionID, callID: payload.source.id });
+                const call = { sessionID: payload.sessionID, callID: payload.source.id };
+                permissionCalls.set(payload.id, call);
+                sharedPermissionCalls.calls.set(payload.id, call);
             }
             else if (event?.type === "permission.replied") {
                 const call = permissionCalls.get(payload?.requestID);
                 if (!call || call.sessionID !== payload?.sessionID)
                     return;
-                permissionCalls.delete(payload.requestID);
+                forgetPermissionCall(payload.requestID);
                 if (payload.reply === "reject") {
                     rememberRefusal(call.callID, "rejected");
                     releaseCursorShellEnv(call.callID);
@@ -139,7 +156,7 @@ const plugin = {
                         if (pending.sessionID === call.sessionID) {
                             rememberRefusal(pending.callID, "rejected");
                             releaseCursorShellEnv(pending.callID);
-                            permissionCalls.delete(id);
+                            forgetPermissionCall(id);
                         }
                 }
             }
@@ -149,14 +166,14 @@ const plugin = {
                     releaseCursorShellEnv(payload.id);
                 for (const [id, call] of permissionCalls)
                     if (call.callID === payload.id && call.sessionID === payload.sessionID) {
-                        permissionCalls.delete(id);
+                        forgetPermissionCall(id);
                     }
             }
             else if (event?.type === "session.deleted") {
                 for (const [id, call] of permissionCalls)
                     if (call.sessionID === payload?.sessionID) {
                         releaseCursorShellEnv(call.callID);
-                        permissionCalls.delete(id);
+                        forgetPermissionCall(id);
                     }
             }
         };
@@ -207,66 +224,59 @@ const plugin = {
         };
         let models = [];
         let sourceConnection;
+        let disposed = false;
+        let inventoryPublished = false;
+        let candidateInventory;
         // ── Credentials ─────────────────────────────────────────
         await track(ctx.integration.transform(applyCursorIntegration));
-        let tokenInflight;
-        /**
-         * Current token for model discovery and endpoint warmup, or undefined.
-         *
-         * Resolved every time (concurrent callers share one attempt) and never
-         * memoized: on a fresh install `setup()` runs before the user has
-         * connected, and a long-running daemon outlives any single token. Both
-         * the host resolve and the renewal layer are cheap until a renewal is due.
-         */
-        const accessToken = async () => {
-            tokenInflight ??= resolveCursorAccessToken(ctx.integration).finally(() => {
-                tokenInflight = undefined;
-            });
-            return tokenInflight;
-        };
-        const refreshSourceConnection = async () => {
-            try {
-                sourceConnection = await ctx.integration.connection.active(CURSOR_INTEGRATION_ID);
-            }
-            catch {
-                sourceConnection = undefined;
-            }
-        };
         // ── Provider inventory (in-memory `editor.add`) ─────────────────────
         // Transform replays on provider.reload(). Skip while `models` is empty so
         // the first registration is a no-op; discovery/cache then reload.
         await track(ctx.provider.transform((editor) => {
-            applyCursorProviderInventory(editor, models, sourceConnection);
+            if (disposed)
+                return;
+            const candidate = candidateInventory?.current() ? candidateInventory : undefined;
+            applyCursorProviderInventory(editor, candidate?.models ?? models, candidate ? candidate.connection : sourceConnection);
         }));
-        try {
-            const cached = await readCache(cacheDir);
-            if (cached?.models?.length) {
-                models = cached.models;
-                await refreshSourceConnection();
-                await ctx.provider.reload();
-            }
-        }
-        catch {
-            // Cache seed is best-effort; auth/aisdk still work without it.
-        }
-        const publishModels = async (next) => {
-            const previousModels = models;
-            const previousConnection = sourceConnection;
-            models = next;
-            await refreshSourceConnection();
+        const publishModels = async (next, current) => {
+            const connection = await ctx.integration.connection.active(CURSOR_INTEGRATION_ID).catch((error) => {
+                // Connection metadata is optional for inventory publication; Run auth
+                // still resolves and validates the current credential independently.
+                trace(`opencode2 models: connection lookup failed; publishing without sourceConnection: ${String(error)}`);
+                return undefined;
+            });
+            if (!current())
+                return false;
+            const candidate = { models: next, connection, current };
+            candidateInventory = candidate;
             try {
                 await ctx.provider.reload();
+                if (!current())
+                    return false;
+                models = next;
+                sourceConnection = connection;
+                inventoryPublished = true;
                 return true;
             }
-            catch {
-                // Keep the transform backed by the last inventory that actually
-                // reloaded. A later host replay must not publish a failed account
-                // refresh merely because the candidate remained in this closure.
-                models = previousModels;
-                sourceConnection = previousConnection;
-                return false;
+            finally {
+                // A failed, expired or superseded reload must not change later replays.
+                if (candidateInventory === candidate)
+                    candidateInventory = undefined;
             }
         };
+        // Bound cache publication too: a stalled host reload must not hang setup.
+        const readinessStartedAt = Date.now();
+        try {
+            await withAbortDeadline(MODEL_READINESS_TIMEOUT_MS, modelReadinessTimeout, async (signal) => {
+                const cached = await readCache(cacheDir);
+                if (cached?.models.length && !signal.aborted) {
+                    await publishModels(cached.models, () => !disposed && !signal.aborted);
+                }
+            });
+        }
+        catch (error) {
+            trace(`opencode2 models: cache publication failed: ${String(error)}`);
+        }
         // ── AI SDK wiring ────────────────────────────────────────
         await track(ctx.aisdk.hook("sdk", async (event) => {
             if (!isCursorPackage(event.package, event.model.providerID))
@@ -433,6 +443,9 @@ const plugin = {
             markCompactionAndOptions(event, event.agent === "compaction");
             event.options ??= {};
             event.options[CURSOR_HOST_AGENT_OPTION] = event.agent;
+            if (event.model?.providerID === CURSOR_PROVIDER_ID) {
+                await awaitHostHistoryRewrite(opencodeGlobalCacheDir(), event.sessionID);
+            }
             delete event.options[CURSOR_SESSION_EDITS_DENIED_OPTION];
             delete event.options[CURSOR_SESSION_PERMISSIONS_UNAVAILABLE_OPTION];
             // Compaction cannot approve a plan; its session read stays best effort,
@@ -509,7 +522,9 @@ const plugin = {
         let credentialGeneration = 0;
         let loadedCredentialGeneration = 0;
         let ensureInflight;
-        const ensureModels = () => {
+        const ensureModels = (timeoutMs = MODEL_READINESS_TIMEOUT_MS) => {
+            if (disposed)
+                return Promise.resolve();
             if (modelsLoaded && loadedCredentialGeneration === credentialGeneration) {
                 return Promise.resolve();
             }
@@ -517,37 +532,65 @@ const plugin = {
             // attempt and immediately run again. The generation check prevents the
             // older attempt from suppressing the account-scoped refresh.
             if (ensureInflight)
-                return ensureInflight.then(() => ensureModels());
-            const attemptGeneration = credentialGeneration;
-            const forceRefresh = loadedCredentialGeneration !== attemptGeneration;
-            ensureInflight = (async () => {
-                try {
-                    const token = await accessToken();
-                    const discovered = await loadModels(cacheDir, token, forceRefresh);
+                return ensureInflight;
+            ensureInflight = withAbortDeadline(timeoutMs, modelReadinessTimeout, async (signal) => {
+                while (!disposed && !signal.aborted) {
+                    const attemptGeneration = credentialGeneration;
+                    const current = () => !disposed && !signal.aborted && credentialGeneration === attemptGeneration;
+                    const forceRefresh = loadedCredentialGeneration !== attemptGeneration;
+                    let token;
+                    let discovered;
+                    try {
+                        // Preserve auth failures; only a missing connection is normal startup.
+                        token = await requireCursorAccessToken(ctx.integration);
+                        if (!current())
+                            continue;
+                        discovered = await loadModels(cacheDir, token, forceRefresh);
+                    }
+                    catch (error) {
+                        if (!current())
+                            continue;
+                        if (error instanceof CursorAuthError && error.code === "no_credential") {
+                            trace("opencode2 models: no Cursor credential; connect Cursor first");
+                            return;
+                        }
+                        throw error;
+                    }
+                    if (!current())
+                        continue;
                     if (!discovered.length)
-                        return;
-                    if (credentialGeneration !== attemptGeneration)
-                        return;
-                    if (!await publishModels(discovered))
-                        return;
+                        throw new CursorProtocolError("Cursor returned an empty model catalog", {
+                            code: "CURSOR_EMPTY_MODEL_CATALOG",
+                        });
+                    try {
+                        if (!await publishModels(discovered, current))
+                            continue;
+                    }
+                    catch (error) {
+                        if (!current())
+                            continue;
+                        throw error;
+                    }
                     // A newer credential event arrived while this request was in flight.
-                    // Keep the state dirty so the chained ensure uses the latest token.
-                    if (credentialGeneration !== attemptGeneration)
-                        return;
+                    // Keep the state dirty so the loop uses the latest token.
+                    if (!current())
+                        continue;
                     modelsLoaded = true;
                     loadedCredentialGeneration = attemptGeneration;
-                    if (token) {
-                        await resolveAgentUrl(token, {
-                            apiBaseURL: cursorApiBaseURL(),
-                            telemetryEnabled: cursorGetServerConfigTelemetryEnabled(),
-                        }).catch(() => { });
-                    }
+                    void resolveAgentUrl(token, {
+                        apiBaseURL: cursorApiBaseURL(),
+                        telemetryEnabled: cursorGetServerConfigTelemetryEnabled(),
+                    }).catch(() => { });
+                    trace(`opencode2 models: ready count=${discovered.length}`);
+                    return;
                 }
-                finally {
-                    ensureInflight = undefined;
-                }
-            })();
+            }).finally(() => { ensureInflight = undefined; });
             return ensureInflight;
+        };
+        const refreshModels = () => {
+            void ensureModels().catch((error) => {
+                trace(`opencode2 models: discovery/publication failed: ${String(error)}`);
+            });
         };
         const RETRY_INTERVAL_MS = 3_000;
         const RETRY_WINDOW_MS = 300_000;
@@ -557,24 +600,39 @@ const plugin = {
                 clearInterval(retry);
                 return;
             }
-            void ensureModels().catch(() => { });
+            refreshModels();
         }, RETRY_INTERVAL_MS);
         retry.unref?.();
-        void ensureModels().catch(() => { });
         const onCredentialSwitch = () => {
             modelsLoaded = false;
             credentialGeneration++;
         };
-        const unsubscribe = subscribeSessionActivity(ctx, ensureModels, onCredentialSwitch, toolLifecycle, () => {
+        // Own the observer before iteration: an iterator can throw synchronously
+        // and invoke onStreamClosed before subscribeSessionActivity returns.
+        observePermissionCalls();
+        const unsubscribe = subscribeSessionActivity(ctx, refreshModels, onCredentialSwitch, toolLifecycle, () => {
             hostEventsObserved = false;
             releasePermissionCalls();
         });
-        hostEventsObserved = !!unsubscribe;
+        hostEventsObserved = !!unsubscribe && observingPermissions;
+        if (!unsubscribe)
+            releasePermissionCalls();
+        // OpenCode waits for plugin activation before selecting the first model.
+        // Cached inventory is already usable; only a cold start needs this barrier.
+        if (inventoryPublished)
+            refreshModels();
+        else
+            await ensureModels(Math.max(1, MODEL_READINESS_TIMEOUT_MS - (Date.now() - readinessStartedAt))).catch((error) => {
+                trace(`opencode2 models: startup readiness failed: ${String(error)}`);
+                // Do not fail setup: the host disables failed plugin revisions, which
+                // would remove /connect and prevent credential/network recovery.
+                console.warn(`Cursor model discovery/publication failed: ${String(error)}`);
+            });
         return async () => {
+            disposed = true;
             clearInterval(retry);
             unsubscribe?.();
             releasePermissionCalls();
-            refusals.clear();
             await saveOpenTurnsForShutdown();
             disposeHostAgentModeSwitch?.();
             disposeNativePlansDir();
@@ -586,6 +644,10 @@ const plugin = {
     },
 };
 const SHUTDOWN_SAVE_TIMEOUT_MS = 2_000;
+const MODEL_READINESS_TIMEOUT_MS = 10_000;
+function modelReadinessTimeout() {
+    return new CursorTransportError(`Cursor model discovery/publication timed out after ${MODEL_READINESS_TIMEOUT_MS}ms`, { code: "CURSOR_MODEL_READINESS_TIMEOUT", transient: true, replaySafe: true });
+}
 /** Save every open turn for the next server start, without holding shutdown up for long. */
 async function saveOpenTurnsForShutdown() {
     let timer;
@@ -633,6 +695,15 @@ function subscribeSessionActivity(ctx, onEvent, onCredentialSwitch, onToolEvent,
                 for await (const event of stream) {
                     if (stopped)
                         break;
+                    const payload = eventPayload(event);
+                    if (event.type === "session.compaction.ended"
+                        && typeof event.id === "string" && typeof payload?.sessionID === "string"
+                        && typeof payload.model?.providerID === "string"
+                        && payload.model.providerID !== CURSOR_PROVIDER_ID) {
+                        void noteHostHistoryRewrite(opencodeGlobalCacheDir(), payload.sessionID, event.id).catch((error) => {
+                            trace(`host compaction: persistence failed: ${String(error)}`);
+                        });
+                    }
                     applySessionActivity(event, onCredentialSwitch);
                     onToolEvent?.(event);
                     onEvent?.();

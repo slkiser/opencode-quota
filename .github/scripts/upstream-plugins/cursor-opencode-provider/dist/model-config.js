@@ -1,6 +1,6 @@
-import { CURSOR_VARIANT_PARAMETERS_KEY, CURSOR_WIRE_MODEL_ID_KEY, findDefaultVariant, parseCursorContextLimit, } from "./models.js";
+import { CURSOR_VARIANT_PARAMETERS_KEY, CURSOR_WIRE_MODEL_ID_KEY, findDefaultVariant, parseCursorContextLimit, variantsSupportReasoning, } from "./models.js";
 import { applyCursorModelCost, hasCursorFastPricing } from "./pricing.js";
-import { getDocumentedCursorModelContext, resolveCursorModelSupportsImages, } from "./model-metadata.js";
+import { cursorModelReadsImages, getDocumentedCursorModelContext } from "./model-metadata.js";
 /**
  * Cursor `ModelInfo` → OpenCode model-config mapping.
  *
@@ -207,15 +207,15 @@ export function modelInfoToConfig(mi, options = {}) {
     // 64k–128k output — a tiny cap makes long-context sessions feel broken
     // even when the 1M input window is correct.
     const output = contextTier === "long" ? 128_000 : 32_000;
-    const supportsImages = resolveCursorModelSupportsImages(mi.id, mi.supportsImages);
+    const readsImages = cursorModelReadsImages(mi.id);
     const config = {
         name,
-        attachment: supportsImages,
-        reasoning: mi.supportsThinking ?? false,
+        attachment: readsImages,
+        reasoning: Boolean(mi.supportsThinking || variantsSupportReasoning(options.advertisedVariants ?? variants)),
         tool_call: mi.supportsAgent ?? true,
         temperature: false,
         modalities: {
-            input: supportsImages ? ["text", "image"] : ["text"],
+            input: readsImages ? ["text", "image"] : ["text"],
             output: ["text"],
         },
         limit: {
@@ -322,6 +322,7 @@ export function modelsToConfig(models) {
                 thinkingSuffix,
                 contextTier: group.contextTier,
                 variants: group.variants,
+                advertisedVariants: group.advertisedVariants,
                 fast: group.fast,
             });
             config.variants = modelInfoVariants(m, group.advertisedVariants);

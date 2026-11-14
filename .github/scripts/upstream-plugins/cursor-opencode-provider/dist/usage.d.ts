@@ -47,6 +47,8 @@ export declare function buildLanguageModelV3UsageFromCounters(counters: CursorUs
 export declare function buildLanguageModelV3UsageFromTurnEnded(te: Record<string, unknown>, options?: CursorUsageOptions): LanguageModelV3Usage;
 /** Compact, parseable category snapshot for checkpoint-by-checkpoint traces. */
 export declare function formatCursorTokenCategories(details: CursorConversationTokenDetails | undefined): string;
+/** Cursor's per-category character counts, which tell a real context jump from repeated token accounting. */
+export declare function formatCursorCategoryCharacters(details: CursorConversationTokenDetails | undefined): string;
 /**
  * Explain Cursor's aggregate cache counters using the state visible to this
  * client. `stepStarts` is deliberately not called a model-call count: Cursor
@@ -94,12 +96,13 @@ export declare function missingRulesWarning(details: CursorConversationTokenDeta
 export declare function emptyLanguageModelV3Usage(): LanguageModelV3Usage;
 /**
  * Occupancy-shaped counters for {@link formatTurnUsageValidation}: `usedTokens`
- * with `prior.usedTokens` of it cached, the shape every step finish sends
- * (`shapeStepUsage` in `src/billing.ts`). Always validate occupancy finishes —
- * including TurnEnded/stop — against these, not against aggregate TurnEnded
- * request counters. Request cache ratios stay on `finish:` / cache diagnosis.
+ * with `outputTokens` of it output and `prior.usedTokens` of the rest cached, the
+ * shape every step finish sends (`shapeStepUsage` in `src/billing.ts`). Always
+ * validate occupancy finishes — including TurnEnded/stop — against these, not
+ * against aggregate TurnEnded request counters. Request cache ratios stay on
+ * `finish:` / cache diagnosis.
  */
-export declare function occupancyValidationCounters(details: CursorConversationTokenDetails, prior?: CursorConversationTokenDetails): CursorUsageCounters;
+export declare function occupancyValidationCounters(details: CursorConversationTokenDetails, prior?: CursorConversationTokenDetails, outputTokens?: number): CursorUsageCounters;
 /** Project nested V3 usage into the common flat AI-SDK counter shape. */
 export declare function flatUsageFromV3(usage: LanguageModelV3Usage): {
     inputTokens: number;

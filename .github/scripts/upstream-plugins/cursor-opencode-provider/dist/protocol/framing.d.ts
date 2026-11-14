@@ -5,6 +5,8 @@ export type Frame = {
     payload: Uint8Array;
 };
 export declare function encodeFrame(flags: number, payload: Uint8Array): Uint8Array;
+/** A gzip frame compressed on zlib's thread pool, off the event loop, as Cursor CLI does. */
+export declare function encodeGzipFrame(payload: Uint8Array): Promise<Uint8Array>;
 export declare function decodeFramePayload(frame: Frame): Uint8Array;
 export declare function streamFrames(buffer: Uint8Array): Generator<Frame, void, void>;
 export declare function asyncStreamFrames(stream: ReadableStream<Uint8Array>): AsyncGenerator<Frame, void, void>;
