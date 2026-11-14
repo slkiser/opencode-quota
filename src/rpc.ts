@@ -96,6 +96,25 @@ function schema<T>(check: (value: unknown) => string | null): QuotaRpcSchema<T> 
   };
 }
 
+/**
+ * A Standard Schema for a method input. OpenCode's RPC route takes the input as optional, so a
+ * caller that passes nothing sends no input and the plugin is asked with `undefined`: that is
+ * an empty object here, not a bad request. `null` stays refused.
+ */
+function inputSchema<T>(check: (value: unknown) => string | null): QuotaRpcSchema<T> {
+  return {
+    "~standard": {
+      version: 1,
+      vendor: "opencode-quota",
+      validate: (value) => {
+        const input = value === undefined ? {} : value;
+        const issue = check(input);
+        return issue ? { issues: [{ message: issue }] } : { value: input as T };
+      },
+    },
+  };
+}
+
 /** The same for event data, which OpenCode requires to be an object. */
 function eventSchema<T extends Readonly<Record<string, unknown>>>(
   check: (value: unknown) => string | null,
@@ -180,11 +199,11 @@ export const QuotaRpc = {
   },
   methods: {
     snapshot: {
-      input: schema<QuotaRpcSnapshotInput>(checkSessionInput),
+      input: inputSchema<QuotaRpcSnapshotInput>(checkSessionInput),
       output: schema<QuotaRpcSnapshotOutput>(checkSnapshotOutput),
     },
     refresh: {
-      input: schema<QuotaRpcRefreshInput>((value) => {
+      input: inputSchema<QuotaRpcRefreshInput>((value) => {
         if (!isRecord(value)) return "input must be an object";
         if (!REFRESH_REASONS.includes(value.reason as QuotaRpcRefreshReason)) {
           return `reason must be one of ${REFRESH_REASONS.join(", ")}`;
@@ -196,7 +215,7 @@ export const QuotaRpc = {
       output: schema<QuotaRpcSnapshotOutput>(checkSnapshotOutput),
     },
     notices: {
-      input: schema<QuotaRpcNoticesInput>(checkObjectInput),
+      input: inputSchema<QuotaRpcNoticesInput>(checkObjectInput),
       output: schema<QuotaRpcNoticesOutput>((value) =>
         isRecord(value) && typeof value.homeLine === "string"
           ? null
@@ -204,25 +223,25 @@ export const QuotaRpc = {
       ),
     },
     noticeList: {
-      input: schema<QuotaRpcNoticeListInput>(checkObjectInput),
+      input: inputSchema<QuotaRpcNoticeListInput>(checkObjectInput),
       output: schema<QuotaRpcNoticeListOutput>((value) =>
         isRecord(value) && Array.isArray(value.notices) ? null : "output must carry notices",
       ),
     },
     status: {
-      input: schema<QuotaRpcStatusInput>(checkSessionInput),
+      input: inputSchema<QuotaRpcStatusInput>(checkSessionInput),
       output: schema<QuotaRpcStatusOutput>((value) =>
         isRecord(value) && typeof value.text === "string" ? null : "output must carry a text",
       ),
     },
     usage: {
-      input: schema<QuotaRpcUsageInput>(checkUsageInput),
+      input: inputSchema<QuotaRpcUsageInput>(checkUsageInput),
       output: schema<QuotaRpcUsageOutput>((value) =>
         isRecord(value) && isRecord(value.report) ? null : "output must carry a report",
       ),
     },
     downloadPrices: {
-      input: schema<QuotaRpcDownloadPricesInput>(checkObjectInput),
+      input: inputSchema<QuotaRpcDownloadPricesInput>(checkObjectInput),
       output: schema<QuotaRpcDownloadPricesOutput>((value) =>
         isRecord(value) && typeof value.ok === "boolean" && typeof value.message === "string"
           ? null
@@ -230,7 +249,7 @@ export const QuotaRpc = {
       ),
     },
     settings: {
-      input: schema<QuotaRpcSettingsInput>(checkObjectInput),
+      input: inputSchema<QuotaRpcSettingsInput>(checkObjectInput),
       output: schema<QuotaRpcSettingsOutput>((value) =>
         isRecord(value) &&
         isRecord(value.values) &&
@@ -242,7 +261,7 @@ export const QuotaRpc = {
       ),
     },
     saveSettings: {
-      input: schema<QuotaRpcSaveSettingsInput>((value) => {
+      input: inputSchema<QuotaRpcSaveSettingsInput>((value) => {
         if (!isRecord(value) || !isRecord(value.patch)) return "input must carry a patch object";
         const switches = value.customEnabled;
         if (switches === undefined) return null;
@@ -263,7 +282,7 @@ export const QuotaRpc = {
       ),
     },
     settingsSchema: {
-      input: schema<QuotaRpcSettingsSchemaInput>(checkObjectInput),
+      input: inputSchema<QuotaRpcSettingsSchemaInput>(checkObjectInput),
       output: schema<QuotaRpcSettingsSchemaOutput>((value) =>
         isRecord(value) &&
         isRecord(value.rules) &&
