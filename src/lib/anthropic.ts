@@ -562,8 +562,16 @@ async function readClaudeCredentialsFromMacOSKeychain(): Promise<ClaudeCredentia
   });
 }
 
+function claudeCredentialsPath(): string {
+  return join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), ".credentials.json");
+}
+
+function claudeProbeCacheKey(binaryPath: string): string {
+  return JSON.stringify([binaryPath, claudeCredentialsPath()]);
+}
+
 async function readClaudeCredentialsFromFile(): Promise<ClaudeCredentialSourceResult> {
-  const credentialsPath = join(homedir(), ".claude", ".credentials.json");
+  const credentialsPath = claudeCredentialsPath();
   const location = sanitizeDisplayText(credentialsPath);
 
   let content: string;
@@ -971,9 +979,13 @@ async function getCachedAnthropicLocalDiagnostics(
   binaryPath?: string,
 ): Promise<AnthropicLocalDiagnostics> {
   const resolvedBinaryPath = resolveAnthropicBinaryPath(binaryPath);
-  return await getCachedProbe(localDiagnosticsCache, resolvedBinaryPath, async () => ({
-    value: await probeAnthropicLocalDiagnostics(resolvedBinaryPath),
-  }));
+  return await getCachedProbe(
+    localDiagnosticsCache,
+    claudeProbeCacheKey(resolvedBinaryPath),
+    async () => ({
+      value: await probeAnthropicLocalDiagnostics(resolvedBinaryPath),
+    }),
+  );
 }
 
 function buildDiagnostics(
@@ -1058,7 +1070,7 @@ export async function getAnthropicDiagnostics(
   options: AnthropicProbeOptions = {},
 ): Promise<AnthropicDiagnostics> {
   const binaryPath = resolveAnthropicBinaryPath(options.binaryPath);
-  return await getCachedProbe(diagnosticsCache, binaryPath, () =>
+  return await getCachedProbe(diagnosticsCache, claudeProbeCacheKey(binaryPath), () =>
     probeAnthropicDiagnostics(binaryPath, options.requestTimeoutMs),
   );
 }
