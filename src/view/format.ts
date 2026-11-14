@@ -118,6 +118,21 @@ export function formatDuration(ms: number, style: DurationStyle, decimals: numbe
   return parts.join(style === "compact" ? "" : " ");
 }
 
+/**
+ * How old a provider's rows are, from `okAtMs` (its last good check), for the Limits tabs, where
+ * you can refresh: "checked just now" under a minute (and for a time ahead of `nowMs`), else
+ * "checked 4 min ago", "checked 2 h ago", "checked 3 d ago", rounded down. Undefined before
+ * the provider's first good check.
+ */
+export function checkedAgoText(okAtMs: number | undefined, nowMs: number): string | undefined {
+  if (okAtMs === undefined) return undefined;
+  const minutes = Math.floor((nowMs - okAtMs) / 60_000);
+  if (minutes < 1) return "checked just now";
+  if (minutes < 60) return `checked ${minutes} min ago`;
+  if (minutes < 1440) return `checked ${Math.floor(minutes / 60)} h ago`;
+  return `checked ${Math.floor(minutes / 1440)} d ago`;
+}
+
 /** A time in its largest unit ("28d", "2h", "40m"); "now" for the past. The "percent" reset style uses it. */
 export function largestUnit(ms: number): string {
   return formatDuration(ms, "short", 0).split(" ")[0] as string;

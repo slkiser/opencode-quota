@@ -1,18 +1,17 @@
 /** @jsxImportSource solid-js */
 /**
  * The usage window's Limits view: the session's tokens, when the providers were checked, one
- * card per provider account with its rows, and the legend of the bar colors. Each row has its
- * bar in its level's color with the even-use mark, its percent in your words, when it resets,
- * and its pace. The words of each row come from `limits-model.ts`.
+ * card per provider account with its rows and how long ago it was checked, and the legend of
+ * the bar colors. Each row has its bar in its level's color with the even-use mark, its percent
+ * in your words, when it resets, and its pace. The words of each row come from `limits-model.ts`.
  */
 import type { Context } from "@opencode/plugin/gui";
 import { For, Show } from "solid-js";
 import type { QuotaSnapshot, Words } from "../core/types.js";
-import { formatDuration, type Level, percentText } from "../view/format.js";
+import { type Level, percentText } from "../view/format.js";
 import {
   type GuiDisplay,
   type LimitRow,
-  lastCheckedMs,
   limitCards,
   resetAtFormat,
   sessionStrip,
@@ -90,14 +89,6 @@ export function LimitsView(props: LimitsProps) {
   const { ctx } = props;
   const cards = () => limitCards(props.snapshot, props.display, props.nowMs, props.providerId);
   const strip = () => sessionStrip(props.snapshot, props.display.words);
-  const checked = () => {
-    const ms = lastCheckedMs(props.snapshot);
-    if (ms === undefined) return undefined;
-    const ago = props.nowMs - ms;
-    return ago < 60_000
-      ? ctx.t("limits.checkedNow")
-      : ctx.t("limits.checked", { time: formatDuration(ago, "short", 0) });
-  };
   const pace = () => props.display.colors.levelBy === "pace";
   /** "below 50% left", or "above 50% used" in the used style. */
   const limit = (percentLeft: number) => {
@@ -127,7 +118,6 @@ export function LimitsView(props: LimitsProps) {
           </div>
         )}
       </Show>
-      <Show when={checked()}>{(text) => <div class="oq-note">{text()}</div>}</Show>
       <Show when={cards().length > 0} fallback={<p>{ctx.t("limits.none")}</p>}>
         <div class="oq-grid">
           <For each={cards()}>
@@ -137,6 +127,9 @@ export function LimitsView(props: LimitsProps) {
                   <span class="oq-name">{card.name}</span>
                   <Show when={card.account}>
                     {(account) => <span class="oq-chip">{account()}</span>}
+                  </Show>
+                  <Show when={card.checked}>
+                    {(checked) => <span class="oq-age">{checked()}</span>}
                   </Show>
                   <Show when={card.current}>
                     <span class="oq-chip oq-current-chip">{ctx.t("limits.current")}</span>

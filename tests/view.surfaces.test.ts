@@ -146,6 +146,11 @@ describe("every surface for one snapshot", () => {
     expect(surfaces(settings(), [24, 36, 48])).toEqual(GOLDEN);
   });
 
+  it("leaves out how long ago a provider was checked: only the Limits tabs can refresh", () => {
+    const drawn = JSON.stringify(surfaces(settings(), [24, 36, 48]));
+    expect(drawn).not.toMatch(/checked (just now|\d+ (min|h|d) ago)/u);
+  });
+
   it("titles a panel without lines, and leaves out tokens the sidebar doesn't show", () => {
     const quiet = settings();
     quiet.collapsed.show = false;
