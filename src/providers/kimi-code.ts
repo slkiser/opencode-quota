@@ -33,11 +33,11 @@ type KimiSpec = {
   auth: ApiKeyLoginSpec;
 };
 
-/** One window of the reply: the weekly usage or one of the limits. */
+/** One window of the reply: the weekly usage, one of the limits or one of the usage ratios. */
 type KimiWindow = {
   label: string;
-  used: number;
-  limit: number;
+  used?: number;
+  limit?: number;
   percentRemaining: number;
   resetTimeIso?: string;
 };
@@ -157,12 +157,59 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-/** The weekly `usage` row, then one row per `limits` item (each may sit under `data`). */
+const USAGE_LABELS: Readonly<Record<string, string>> = {
+  limit_5h: "5h limit",
+  limit_month_total: "Monthly total limit",
+  limit_month_code: "Monthly code limit",
+};
+
+/** The label of a `usages` entry: a known one, or the key's words with "limit" after them. */
+function usageLabel(key: string): string {
+  const known = USAGE_LABELS[key];
+  if (known) return known;
+  const words = key
+    .replace(/^limit_/u, "")
+    .replace(/[_-]+/gu, " ")
+    .trim();
+  return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)} limit` : key;
+}
+
+/** Match ratios by duration or API key, independently of the displayed limit name. */
+function limitUsageKey(
+  item: Record<string, unknown>,
+  detail: Record<string, unknown>,
+  window: Record<string, unknown>,
+  label: string,
+): string | undefined {
+  const duration = getFiniteNumber(window.duration ?? item.duration ?? detail.duration);
+  const timeUnit = String(window.timeUnit ?? item.timeUnit ?? detail.timeUnit ?? "");
+  const secondsPerUnit = timeUnit.includes("MINUTE")
+    ? 60
+    : timeUnit.includes("HOUR")
+      ? 3600
+      : timeUnit.includes("DAY")
+        ? 86400
+        : 1;
+  if (duration !== undefined && duration * secondsPerUnit === 18000) {
+    return "limit_5h";
+  }
+  if (duration === undefined && classifyWindow(label) === "five_hour") {
+    return "limit_5h";
+  }
+  return nonEmptyString(item.key ?? detail.key);
+}
+
+/**
+ * The weekly `usage` row, one row per `limits` item, then the `usages` ratios the limits do not
+ * already report (each may sit under `data`). `used_ratio` is a fraction, so 0.15 means 15% used.
+ */
 function parseKimiWindows(payload: Record<string, unknown>): KimiWindow[] {
   const data = asObject(payload.data);
   const usage = asObject(data?.usage ?? payload.usage);
   const limits = data?.limits ?? payload.limits;
+  const usages = asObject(data?.usages ?? payload.usages);
   const windows: KimiWindow[] = [];
+  const reportedKeys = new Set<string>();
 
   const usageWindow = usage ? toUsageWindow(usage, "Weekly limit") : null;
   if (usageWindow) windows.push(usageWindow);
@@ -174,7 +221,26 @@ function parseKimiWindows(payload: Record<string, unknown>): KimiWindow[] {
       const detail = asObject(itemMap.detail) ?? itemMap;
       const window = asObject(itemMap.window) ?? {};
       const limitWindow = toUsageWindow(detail, buildLimitLabel(itemMap, detail, window, index));
-      if (limitWindow) windows.push(limitWindow);
+      if (!limitWindow) continue;
+      windows.push(limitWindow);
+      const key = limitUsageKey(itemMap, detail, window, limitWindow.label);
+      if (key) reportedKeys.add(key);
+    }
+  }
+
+  if (usages) {
+    for (const [key, item] of Object.entries(usages)) {
+      const itemMap = asObject(item);
+      if (!itemMap) continue;
+      const label = usageLabel(key);
+      if (reportedKeys.has(key)) continue;
+      const usedRatio = getFiniteNumber(itemMap.used_ratio ?? itemMap.usedRatio);
+      if (usedRatio === undefined) continue;
+      windows.push({
+        label,
+        percentRemaining: clampPercent(100 - usedRatio * 100),
+        resetTimeIso: parseResetTimeIso(itemMap),
+      });
     }
   }
 
