@@ -112,6 +112,7 @@ describe("OpenCode Go with the Console sign-in", () => {
 
     const fetched = await fetchRows(opencodeGoProvider);
 
+    expect(fetched.empty).toBe(true);
     expect(fetched.rows).toEqual([]);
     expect(fetched.error).toBeUndefined();
     expect(fetched.debug).toContainEqual(NOT_SUBSCRIBED_DETAIL);
@@ -271,6 +272,7 @@ describe("OpenCode Go with an API key", () => {
       await fetchRows(opencodeGoProvider),
       await fetchRows(opencodeGoProvider),
     ]) {
+      expect(fetched.empty).toBe(true);
       expect(fetched.rows).toEqual([]);
       expect(fetched.error).toBeUndefined();
       expect(fetched.debug).toContainEqual(NOT_SUBSCRIBED_DETAIL);
@@ -302,6 +304,13 @@ describe("OpenCode Go with an API key", () => {
 });
 
 describe("OpenCode Go with stored keys", () => {
+  it("answers with nothing when all stored keys have no Go plan", async () => {
+    world.storeLogins([keyLogin("free", "opencode-go", "free-key")]);
+    fakeHttp(() => notSubscribedReply());
+    expect(await fetchRows(opencodeGoProvider)).toMatchObject({ rows: [], empty: true });
+    expect(await fetchRows(opencodeGoProvider)).toMatchObject({ rows: [], empty: true });
+  });
+
   it("queries each key as its own account: a broken login first, a key without Go hidden", async () => {
     world.storeLogins([
       keyLogin("work", "opencode-go", "work-key", { label: "Work", updated: 4 }),

@@ -163,6 +163,7 @@ export const opencodeGoProvider: QuotaProvider = {
         return {
           attempted: true,
           accounts: [],
+          empty: true,
           debug: [
             { key: "console_auth_state", value: "configured" },
             NOT_SUBSCRIBED_DETAIL,
@@ -212,6 +213,7 @@ async function fetchWithApiKey(
   const notSubscribed: ProviderFetchResult = {
     attempted: true,
     accounts: [],
+    empty: true,
     debug: [...debug, NOT_SUBSCRIBED_DETAIL],
   };
 
@@ -255,6 +257,7 @@ async function fetchWithApiKey(
     return {
       attempted: true,
       accounts,
+      ...(nothingShown && storedKeys.length > 0 ? { empty: true } : {}),
       debug: nothingShown && storedKeys.length > 0 ? [...debug, NOT_SUBSCRIBED_DETAIL] : debug,
     };
   }
