@@ -8,7 +8,7 @@
  * and gives the other tabs the conversation's width. There `followSideWidth` only hands Desktop
  * the Quota width the trick below remembered, once, when Desktop stores none yet.
  *
- * Without that API (older Desktop, or a probe or hand-over that throws), the trick below does it. While the Quota tab is the only tab on screen in the side panel, the panel is as narrow
+ * Without that API (older Desktop, or a probe that throws), the trick below does it. While the Quota tab is the only tab on screen in the side panel, the panel is as narrow
  * as the app allows (Quota's content is small), or the width the user last gave it; when another
  * tab shows, the panel gets the width it had before Quota showed. Quota in the panel's split
  * pane, next to another tab, or in the bottom pane counts as another tab: the app's tab state
@@ -136,8 +136,6 @@ export function followSideWidth(ctx: Context, panelKey: string, panelWidth?: Pan
     console.warn(`[opencode-quota] the side panel's width is left to OpenCode: ${String(error)}`);
   };
 
-  /** Without Desktop's API, or once it fails, the trick sizes the panel. */
-  const [dragging, setDragging] = createSignal(panelWidth === undefined);
   if (panelWidth) {
     let handedOver = false;
     createEffect(() => {
@@ -147,17 +145,15 @@ export function followSideWidth(ctx: Context, panelKey: string, panelWidth?: Pan
         const quota = remembered().quota;
         if (quota > 0 && panelWidth.get() === undefined) panelWidth.set(quota);
       } catch (error) {
-        console.warn(
-          `[opencode-quota] Desktop's panel width API failed; using the divider: ${String(error)}`,
-        );
-        setDragging(true);
+        console.warn(`[opencode-quota] Desktop's panel width API failed: ${String(error)}`);
       }
     });
+    return;
   }
 
   createEffect(() => {
     try {
-      if (!dragging() || !widths.ready()) return;
+      if (!widths.ready()) return;
       stopWatching ??= watchHandDrags(
         () => {
           stopWaiting?.();

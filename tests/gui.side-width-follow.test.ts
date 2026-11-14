@@ -504,6 +504,10 @@ describe("panelWidthApi", () => {
 });
 
 describe("followSideWidth with Desktop's panel width API", () => {
+  /** The trick's writes to its remembered widths in plugin storage. */
+  const storeSet = vi.fn();
+  beforeEach(() => storeSet.mockClear());
+
   function startWithApi(
     stored: number | undefined,
     remembered: number,
@@ -514,7 +518,7 @@ describe("followSideWidth with Desktop's panel width API", () => {
     const layout = widthLayout(stored);
     const ctx = {
       sessions: { current: () => screen.session },
-      storage: { store: () => ({ value, ready: () => true, set: vi.fn() }) },
+      storage: { store: () => ({ value, ready: () => true, set: storeSet }) },
       layout,
     } as unknown as Context;
     const api = panelWidthApi(ctx, "quota");
@@ -539,7 +543,7 @@ describe("followSideWidth with Desktop's panel width API", () => {
     ["reading", "width"],
     ["storing", "resize"],
   ] as const)(
-    "drags the divider instead when %s the width fails after the probe",
+    "leaves the sizing to Desktop and warns once when %s the width fails after the probe",
     (_name, method) => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       startWithApi(undefined, 450, (side) =>
@@ -548,12 +552,31 @@ describe("followSideWidth with Desktop's panel width API", () => {
         }),
       );
 
-      expect(watchHandDrags).toHaveBeenCalled();
-      expect(dragSide).toHaveBeenCalled();
-      expect(warn).toHaveBeenCalledOnce();
+      expect(watchHandDrags).not.toHaveBeenCalled();
+      expect(dragSide).not.toHaveBeenCalled();
+      expect(warn.mock.calls).toEqual([
+        ["[opencode-quota] Desktop's panel width API failed: Error: gone"],
+      ]);
       warn.mockRestore();
     },
   );
+
+  it("captures and restores no width when the hand-over fails and Desktop sizes the panel", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    startWithApi(undefined, 450, (side) =>
+      side.resize.mockImplementation(() => {
+        throw new Error("gone");
+      }),
+    );
+    show("other", 700);
+    show("quota", 320);
+    show("other", 700);
+
+    expect(whenSideStill).not.toHaveBeenCalled();
+    expect(dragSide).not.toHaveBeenCalled();
+    expect(storeSet).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
 
   it("hands Desktop the Quota width the trick remembered, once, only when Desktop stores none", () => {
     expect(startWithApi(undefined, 450).resize.mock.calls).toEqual([["quota", 450]]);
