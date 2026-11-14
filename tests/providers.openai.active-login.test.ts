@@ -79,6 +79,12 @@ describe("openai provider with an empty connection list", () => {
         percentRemaining: 80,
         windowStartedAt: expect.any(String),
       }),
+      expect.objectContaining({
+        id: "openai.codex_credits",
+        account: "Plus",
+        type: "balance",
+        text: "No data",
+      }),
     ]);
   });
 

@@ -27,11 +27,13 @@ import {
   type Place,
   type RowFacts,
   resetAlone,
+  retainedStatusBalance,
   rowFacts,
 } from "./row-facts.js";
 import {
   type Group,
   pickRow,
+  statusGroups,
   type Surface,
   visibleGroups,
   type WindowChoice,
@@ -165,6 +167,7 @@ function alwaysOnPlace(
     nowMs: input.nowMs,
     names: "words",
     percent,
+    codexCredits: "compact",
     evenUse: input.layout.evenUse,
     pace: input.runsOut ? "runsOut" : undefined,
   };
@@ -326,7 +329,12 @@ export function sidebarLines(input: SidebarInput): Line[] {
   const rowLine = (row: RowFacts): Line => {
     const { percent } = row;
     if (percent === undefined) {
-      const start = valueRowStart(layout.indent, row.name, layout.labelWidth, barColumn);
+      const start = valueRowStart(
+        layout.indent,
+        row.name,
+        row.id === "openai.codex_credits" ? columnsOf(row.name) : layout.labelWidth,
+        barColumn,
+      );
       return {
         id: row.id,
         segments: clip(
@@ -500,7 +508,11 @@ export type StatusInput = {
 
 /** A provider's name on the status line: with its account only when it shows several. */
 function statusName(input: StatusInput, group: Group): string {
-  const accounts = input.groups.filter((other) => other.providerId === group.providerId).length;
+  const accounts = new Set(
+    input.groups
+      .filter((other) => other.providerId === group.providerId)
+      .map((other) => other.account),
+  ).size;
   return accounts > 1 ? group.title : group.name;
 }
 
@@ -515,6 +527,16 @@ function statusSegment(input: StatusInput, group: Group, level: StatusLevel): Li
   const percent = picked?.percent;
   const name: Segment = { text: statusName(input, group), role: "statusName", percent };
   if (!picked || percent === undefined) {
+    const error = errorWords(group, nowMs);
+    if (retainedStatusBalance(picked, error))
+      return {
+        id: group.id,
+        segments: [
+          name,
+          { text: ` ${picked!.value}`, role: "value" },
+          { text: ` (${error})`, role: "error" },
+        ],
+      };
     const value = groupState(group, nowMs) ?? { text: picked?.value ?? "", role: "value" };
     return { id: group.providerId, segments: [name, { ...value, text: ` ${value.text}` }] };
   }
@@ -779,7 +801,12 @@ function groupedToastLines(input: ToastInput): Line[] {
   const rowLines = (row: RowFacts): Line[] => {
     const { percent } = row;
     if (percent === undefined) {
-      const start = valueRowStart(GROUPED_INDENT, row.name, GROUPED_NAME_MAX, barColumn);
+      const start = valueRowStart(
+        GROUPED_INDENT,
+        row.name,
+        row.id === "openai.codex_credits" ? columnsOf(row.name) : GROUPED_NAME_MAX,
+        barColumn,
+      );
       const value: Segment = { text: row.value, role: "value" };
       return [{ id: row.id, segments: clip([{ text: start, role: "label" }, value], room) }];
     }
@@ -966,8 +993,10 @@ export function statusLineInput(
   settings: Settings,
   nowMs: number,
 ): StatusInput {
+  const input = surfaceInput("statusLine", snapshot, settings, nowMs);
   return {
-    ...surfaceInput("statusLine", snapshot, settings, nowMs),
+    ...input,
+    groups: statusGroups(input.groups, settings.statusLine.window),
     window: settings.statusLine.window,
   };
 }

@@ -9,6 +9,7 @@ import {
   QUOTA_PROVIDER_REGISTRATION_SOURCE,
 } from "../lib/provider-registration.js";
 import { alibabaCodingPlanProvider, alibabaTokenPlanProvider } from "./alibaba.js";
+import { anthropicApiProvider } from "./anthropic-api.js";
 import { anthropicProvider } from "./anthropic.js";
 import { copilotProvider } from "./copilot.js";
 import { cursorProvider } from "./cursor.js";
@@ -32,6 +33,7 @@ import { xaiProvider } from "./xai.js";
 
 const PROVIDERS_BY_ID = {
   anthropic: anthropicProvider,
+  "anthropic-api": anthropicApiProvider,
   copilot: copilotProvider,
   openai: openaiProvider,
   openrouter: openRouterProvider,

@@ -25,8 +25,14 @@ import {
   shownEvenLeft,
   shownPercent,
 } from "../view/format.js";
-import { errorWords, type Place, type RowFacts, rowFacts } from "../view/row-facts.js";
-import { type Group, pickRow, visibleGroups, windowFor } from "../view/select.js";
+import {
+  errorWords,
+  type Place,
+  type RowFacts,
+  retainedStatusBalance,
+  rowFacts,
+} from "../view/row-facts.js";
+import { type Group, pickRow, statusGroups, visibleGroups, windowFor } from "../view/select.js";
 import {
   type ColorRole,
   lineText,
@@ -103,6 +109,7 @@ function alwaysOnPlace(
     nowMs,
     names: "words",
     percent,
+    codexCredits: "compact",
     evenUse: settings.layout.evenUse,
     pace,
   };
@@ -115,7 +122,9 @@ function surfaceRow(settings: Pick<Settings, "colors">, facts: RowFacts): Surfac
 
 function surfaceGroup(groups: Group[], group: Group, nowMs: number): Omit<SurfaceGroup, "rows"> {
   const error = errorWords(group, nowMs);
-  const accounts = groups.filter((other) => other.providerId === group.providerId).length;
+  const accounts = new Set(
+    groups.filter((other) => other.providerId === group.providerId).map((other) => other.account),
+  ).size;
   return {
     id: group.id,
     providerId: group.providerId,
@@ -182,7 +191,8 @@ export function pickedGroups(
   const pace = "pace" in place ? place.pace : settings[surface].runsOut ? "runsOut" : undefined;
   const rowPlace = alwaysOnPlace(settings, nowMs, place.percent ?? "usedWord", pace);
   const shown = visibleGroups(snapshot, settings, surface, settings.words);
-  return shown.map((group) => {
+  const groups = surface === "statusLine" ? statusGroups(shown, settings.statusLine.window) : shown;
+  return groups.map((group) => {
     const picked = pickRow(group, windowFor(settings[surface].window, group));
     return {
       ...surfaceGroup(shown, group, nowMs),
@@ -229,7 +239,10 @@ export function pickedText(group: PickedGroup, unchecked: string, withName = fal
   const { row } = group;
   const name = withName && row?.percent !== undefined ? `${group.title} ${row.name}` : group.title;
   if (!row || row.percent === undefined) {
-    const state = group.error ?? (group.unchecked ? unchecked : row?.value);
+    const state =
+      retainedStatusBalance(row, group.error) ??
+      group.error ??
+      (group.unchecked ? unchecked : row?.value);
     return state ? `${name} ${state}` : name;
   }
   const pace = row.pace ? ` (${row.pace.words})` : "";

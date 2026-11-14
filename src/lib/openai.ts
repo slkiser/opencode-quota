@@ -29,6 +29,7 @@ interface OpenAIUsageResponse {
   rate_limit: { primary_window?: unknown; secondary_window?: unknown } | null;
   code_review_rate_limit?: { primary_window?: unknown } | null;
   spend_control?: { individual_limit?: unknown } | null;
+  credits?: unknown;
 }
 
 interface JwtPayload {
@@ -135,7 +136,23 @@ export const OPENAI_AUTH_SOURCE_KEYS = ["openai", "codex", "chatgpt"] as const;
 
 type OpenAIAuthSourceKey = (typeof OPENAI_AUTH_SOURCE_KEYS)[number];
 
-export type OpenAIResult = { success: true; label: string; windows: OpenAIWindows } | QuotaError;
+export type OpenAICredits = { balance?: string; unlimited?: boolean };
+
+/** Keep provider decimal strings exact; metadata never implies a zero balance. */
+function parseCredits(value: unknown): OpenAICredits | undefined {
+  if (!isRecord(value)) return undefined;
+  const balance = value.balance;
+  return {
+    ...(typeof balance === "string" && /^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(balance)
+      ? { balance }
+      : {}),
+    ...(value.unlimited === true ? { unlimited: true } : {}),
+  };
+}
+
+export type OpenAIResult =
+  | { success: true; label: string; windows: OpenAIWindows; credits?: OpenAICredits }
+  | QuotaError;
 
 /** A stored OpenAI login: one OpenCode could not return, or one with an access token. */
 export type OpenAIOAuthLogin =
@@ -282,11 +299,16 @@ function parseUsageResponse(data: OpenAIUsageResponse): OpenAIResult {
   const codeReview = parseWindowValue(data.code_review_rate_limit?.primary_window, observedAtMs);
   if (codeReview) windows.codeReview = codeReview;
 
-  if (Object.keys(windows).length === 0) {
+  if (Object.keys(windows).length === 0 && data.credits === undefined) {
     return { success: false, error: "No quota data" };
   }
 
-  return { success: true, label: derivePlanLabel(data.plan_type), windows };
+  return {
+    success: true,
+    label: derivePlanLabel(data.plan_type),
+    windows,
+    credits: parseCredits(data.credits),
+  };
 }
 
 export async function queryOpenAIQuota(options: {

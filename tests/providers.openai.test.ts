@@ -179,14 +179,19 @@ describe("openai provider", () => {
         ["openai.weekly", account, "Weekly", "week", "2026-01-07T00:00:00.000Z"],
         ["openai.monthly", account, "Monthly", "month", "2026-02-01T00:00:00.000Z"],
         ["openai.code_review", account, "Code review", "code_review", "2026-01-02T00:00:00.000Z"],
+        ["openai.codex_credits", account, "Codex credits", undefined, undefined],
       ]),
     );
-    expect(fetched.rows.every((row) => row.type === "quota" && row.method === "remote_api")).toBe(
-      true,
-    );
+    expect(
+      fetched.rows.every(
+        (row) =>
+          (row.type === "quota" || (row.type === "balance" && row.id === "openai.codex_credits")) &&
+          row.method === "remote_api",
+      ),
+    ).toBe(true);
     expect(fetched.rowLogins).toEqual([
-      ...Array(4).fill("active-id"),
-      ...Array(4).fill("other-id"),
+      ...Array(5).fill("active-id"),
+      ...Array(5).fill("other-id"),
     ]);
   });
 
@@ -207,8 +212,11 @@ describe("openai provider", () => {
       methods: ["oauth", "key"],
     });
     expect(tokens()).toEqual(["Bearer home-token"]);
-    expect(summary(fetched.rows)).toEqual([["openai.five_hour", "Home (Pro)", "5h", 42]]);
-    expect(fetched.rowLogins).toEqual(["home-id"]);
+    expect(summary(fetched.rows)).toEqual([
+      ["openai.five_hour", "Home (Pro)", "5h", 42],
+      ["openai.codex_credits", "Home (Pro)", "Codex credits", "No data"],
+    ]);
+    expect(fetched.rowLogins).toEqual(["home-id", "home-id"]);
     expect(fetched.debug).toEqual(
       expect.arrayContaining([
         { key: "auth_configured", value: "true" },
@@ -312,7 +320,9 @@ describe("openai provider", () => {
 
       const fetched = await fetchRows(rows === "key, oauth" ? [key, oauth] : [oauth, key], config);
 
-      expect(fetched.rowLogins).toEqual(logins);
+      expect(fetched.rowLogins).toEqual(
+        logins.flatMap((id) => (id === "oauth-id" ? [id, id] : [id])),
+      );
       expect(http).toHaveBeenCalledOnce();
       expect(fetched.debug).toContainEqual({ key: "auth_source", value: source });
     },

@@ -15,7 +15,7 @@ import type { Context } from "@opencode/plugin/gui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
 import type { Settings } from "../settings/schema.js";
-import { joinsPercent } from "../view/row-facts.js";
+import { joinsPercent, retainedStatusBalance } from "../view/row-facts.js";
 import { type ColorRole } from "../view/text.js";
 import { Bar } from "./panel.js";
 import {
@@ -58,6 +58,7 @@ function StripItem(props: {
   const withReset = () =>
     props.detail === "full" || props.detail === "reset" || props.detail === "one";
   const state = () =>
+    retainedStatusBalance(row(), props.group.error) ??
     props.group.error ??
     (props.group.unchecked ? props.ctx.t("panel.notChecked") : (row()?.value ?? ""));
   return (
