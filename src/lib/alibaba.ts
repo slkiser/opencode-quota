@@ -231,7 +231,7 @@ export const ERROR_MESSAGES: Record<AlibabaErrorKind, string> = {
   not_authenticated:
     "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`, or set BAILIAN_ACCESS_KEY_ID with BAILIAN_ACCESS_KEY_SECRET on bailian-cli 2.8.0+.",
   seat_not_authenticated:
-    "Alibaba Cloud API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set BAILIAN_ACCESS_KEY_ID with BAILIAN_ACCESS_KEY_SECRET (or ALIBABA_CLOUD_ACCESS_KEY_ID with ALIBABA_CLOUD_ACCESS_KEY_SECRET) on bailian-cli 2.8.0+.",
+    "API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set BAILIAN_ACCESS_KEY_ID with BAILIAN_ACCESS_KEY_SECRET (or ALIBABA_CLOUD_ACCESS_KEY_ID with ALIBABA_CLOUD_ACCESS_KEY_SECRET) on bailian-cli 2.8.0+.",
   seat_command_failed: "Could not read Alibaba Token Plan team seats.",
   seat_invalid_schema: "Alibaba Cloud CLI returned an invalid team seat payload.",
   coding_plan_command_failed: "Could not read Alibaba Coding Plan quota.",

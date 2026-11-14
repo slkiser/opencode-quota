@@ -101,7 +101,7 @@ const PRODUCED: ReadonlyArray<{
   {
     code: "login_expired",
     from: "src/lib/alibaba.ts",
-    text: "Alibaba Cloud API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set BAILIAN_ACCESS_KEY_ID with BAILIAN_ACCESS_KEY_SECRET (or ALIBABA_CLOUD_ACCESS_KEY_ID with ALIBABA_CLOUD_ACCESS_KEY_SECRET) on bailian-cli 2.8.0+.",
+    text: "API Key credentials are missing or expired for team seats; this requires login. Run `bl auth login --open-api`, or set BAILIAN_ACCESS_KEY_ID with BAILIAN_ACCESS_KEY_SECRET (or ALIBABA_CLOUD_ACCESS_KEY_ID with ALIBABA_CLOUD_ACCESS_KEY_SECRET) on bailian-cli 2.8.0+.",
   },
   {
     code: "login_expired",
