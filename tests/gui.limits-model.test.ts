@@ -2,7 +2,6 @@ import { describe, expect, it } from "vite-plus/test";
 import type { QuotaRow, QuotaSnapshot } from "../src/core/types.js";
 import {
   displayOf,
-  lastCheckedMs,
   limitCards,
   limitProviders,
   resetAtFormat,
@@ -196,11 +195,6 @@ describe("GUI session strip and check time", () => {
     });
     expect(sessionStrip(SNAPSHOT, { ...DEFAULT_WORDS, sessionTokens: "tree" })?.tree).toBe(true);
     expect(sessionStrip({ ...SNAPSHOT, sessionTokens: undefined }, DEFAULT_WORDS)).toBeUndefined();
-  });
-
-  it("takes the latest check of any provider", () => {
-    expect(lastCheckedMs(SNAPSHOT)).toBe(NOW - 3 * 60_000);
-    expect(lastCheckedMs({ ...SNAPSHOT, providers: [] })).toBeUndefined();
   });
 });
 

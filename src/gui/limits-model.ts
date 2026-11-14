@@ -196,11 +196,3 @@ export function sessionStrip(snapshot: QuotaSnapshot, words: Words): SessionStri
     output: formatTokens(tokens.output),
   };
 }
-
-/** When the providers were last checked: the latest check of any of them. */
-export function lastCheckedMs(snapshot: QuotaSnapshot): number | undefined {
-  const checked = snapshot.providers
-    .map((provider) => provider.checkedAtMs)
-    .filter((ms): ms is number => ms !== undefined);
-  return checked.length > 0 ? Math.max(...checked) : undefined;
-}
