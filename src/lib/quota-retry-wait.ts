@@ -67,8 +67,9 @@ function modelRows(snapshot: QuotaSnapshot, provider: ProviderSnapshot): QuotaRo
 
 /**
  * The retry delay for a limit error on `event.model`, or undefined to keep OpenCode's decision.
- * The store asks the providers serving the model again at once (a retry refresh has no minimum
- * interval), and its answer names them and the rows that serve the model:
+ * The store asks the providers serving the model again at once (a retry refresh skips the minimum
+ * interval, except a provider's own `minIntervalMs`), and its answer names them and the rows that
+ * serve the model:
  * the limit error itself shows the quota changed, so only rows read for this retry count. A
  * provider with an error counts not at all: the rows it kept for a failed login are old.
  */
