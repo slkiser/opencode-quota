@@ -522,7 +522,7 @@ Create an Ollama API key, then set `OLLAMA_API_KEY` (or see [API keys](#api-keys
 ### OpenAI and xAI
 
 - **OpenAI:** ChatGPT quota needs a Codex login: `/connect` → OpenAI → **Codex browser (legacy)** or **Codex device code (legacy)**. OpenAI rejects **Sign in with ChatGPT** logins on ChatGPT's usage endpoint, so they show "ChatGPT quota unavailable for Sign in with ChatGPT", and stored API keys show "ChatGPT quota unavailable for API key", both without a ChatGPT request.
-- **Codex credits:** the existing OpenAI usage request also supplies `openai.codex_credits`; no extra login or request is needed. Decimal balances stay exact, including fractions in the sidebar, toasts and status line (`1,250.5`). An explicit unlimited balance shows **Unlimited credits**; missing, null or malformed data shows **No data**, and only an explicit zero shows zero. Credits accompany the selected OpenAI window in the status line; **one** detail shows the first item. Normal row hiding, renaming, ordering and paging settings apply. Failed refreshes keep the last balance with a warning.
+- **Codex credits:** the existing OpenAI usage request also supplies `openai.codex_credits`; no extra login or request is needed. Decimal balances stay exact, including fractions in the sidebar, toasts and status line (`1,250.5`). The row shows only when OpenAI reports credits for the account: unlimited shows **Unlimited credits**, a malformed balance shows **No data**, and only an explicit zero shows zero. Credits accompany the selected OpenAI window in the status line; **one** detail shows the first item. Normal row hiding, renaming, ordering and paging settings apply. Failed refreshes keep the last balance with a warning.
 - **xAI:** reads OpenCode's xAI login and shows its Weekly window. A lookup of at most 2 seconds labels the plan xAI Lite, xAI SuperGrok or xAI Heavy; when it fails or the plan is unknown, the label is xAI SuperGrok.
 
 <a id="claude-api"></a>
@@ -550,7 +550,7 @@ export ANTHROPIC_CONSOLE_ORGANIZATION='Your API organization name'
 ```
 
 The name must identify exactly one accessible API organization; a UUID resolves duplicate names.
-Chat-only organizations are ignored. An ambiguous or inaccessible selection asks for the environment variable.
+Chat-only organizations are ignored; a session with no API organization shows **No active plan**. An ambiguous selection, or one that matches no API organization, asks for the environment variable.
 The provider reads the undocumented Console organizations and prepaid-credits endpoints; billing access is required.
 A rejected or expired session requires a fresh cookie. A billing-access error requires the organization's owner to grant access.
 Changing the cookie or organization isolates the cached balance. A failed refresh keeps the last balance with a warning.

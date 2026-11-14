@@ -138,9 +138,10 @@ type OpenAIAuthSourceKey = (typeof OPENAI_AUTH_SOURCE_KEYS)[number];
 
 export type OpenAICredits = { balance?: string; unlimited?: boolean };
 
-/** Keep provider decimal strings exact; metadata never implies a zero balance. */
+/** Credits only for an account OpenAI says has them (or unlimited); decimal strings stay exact. */
 function parseCredits(value: unknown): OpenAICredits | undefined {
-  if (!isRecord(value)) return undefined;
+  if (!isRecord(value) || (value.has_credits !== true && value.unlimited !== true))
+    return undefined;
   const balance = value.balance;
   return {
     ...(typeof balance === "string" && /^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(balance)
@@ -299,7 +300,8 @@ function parseUsageResponse(data: OpenAIUsageResponse): OpenAIResult {
   const codeReview = parseWindowValue(data.code_review_rate_limit?.primary_window, observedAtMs);
   if (codeReview) windows.codeReview = codeReview;
 
-  if (Object.keys(windows).length === 0 && data.credits === undefined) {
+  const credits = parseCredits(data.credits);
+  if (Object.keys(windows).length === 0 && credits === undefined) {
     return { success: false, error: "No quota data" };
   }
 
@@ -307,7 +309,7 @@ function parseUsageResponse(data: OpenAIUsageResponse): OpenAIResult {
     success: true,
     label: derivePlanLabel(data.plan_type),
     windows,
-    credits: parseCredits(data.credits),
+    ...(credits ? { credits } : {}),
   };
 }
 

@@ -123,6 +123,7 @@ function quotaWindowRows(result: Extract<OpenAIResult, { success: true }>): Prov
     { slot: CODE_REVIEW, value: result.windows.codeReview },
   ]);
   const credits = result.credits;
+  if (!credits) return rows;
   rows.push({
     key: "codex_credits",
     label: "Codex credits",
@@ -130,9 +131,9 @@ function quotaWindowRows(result: Extract<OpenAIResult, { success: true }>): Prov
     method: "remote_api",
     authority: "provider_reported",
     prominence: "primary",
-    ...(credits?.unlimited === true
+    ...(credits.unlimited === true
       ? { text: "Unlimited credits" }
-      : credits?.balance !== undefined
+      : credits.balance !== undefined
         ? { amount: { decimal: credits.balance, unit: { kind: "count", unit: "credit" } } }
         : { text: "No data" }),
   });

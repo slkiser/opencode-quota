@@ -148,6 +148,13 @@ export async function queryAnthropicConsoleCredits(
       ...(typeof organization.name === "string" ? { name: organization.name } : {}),
     });
   }
+  if (candidates.length === 0) {
+    return {
+      success: false,
+      error: "No Claude Console API organization found for this session",
+      facts: { code: "no_plan" },
+    };
+  }
   const selected = config.organization
     ? candidates.filter(
         (candidate) =>

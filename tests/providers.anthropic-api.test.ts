@@ -117,6 +117,13 @@ it.each([undefined, "missing", "Duplicate"])(
     );
   },
 );
+it("reports a session without an API organization instead of asking for one", async () => {
+  process.env.ANTHROPIC_CONSOLE_ORGANIZATION = "Anything";
+  const result = await fetchCredits({}, [{ uuid: "chat", capabilities: ["chat"] }]);
+  expect(result.http).toHaveBeenCalledOnce();
+  expect(result.error?.code).toBe("no_plan");
+  expect(errorWords({ name: "Claude API", error: result.error }, 0)).toBe("No active plan");
+});
 it.each(["org-two", "Two"])(
   "selects an organization by UUID or exact name (%s)",
   async (selection) => {

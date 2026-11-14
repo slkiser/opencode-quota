@@ -43,7 +43,7 @@ async function snapshot(credits: unknown, several = false): Promise<QuotaSnapsho
     },
     credits:
       several && requestHeader(init, "Authorization") === "Bearer B"
-        ? { balance: "2500.25" }
+        ? { has_credits: true, balance: "2500.25" }
         : credits,
   }));
   const fetched = rowsFromProviderResult(
@@ -73,7 +73,7 @@ async function snapshot(credits: unknown, several = false): Promise<QuotaSnapsho
 it.each(["1250.5", "0", "0.000001", "9007199254740993.123456789000"])(
   "keeps exact decimal %s",
   async (balance) => {
-    const result = await snapshot({ balance });
+    const result = await snapshot({ has_credits: true, balance });
     expect(
       result.providers[0]!.rows.find((row) => row.id === "openai.codex_credits")?.amount?.decimal,
     ).toBe(balance);
@@ -84,10 +84,19 @@ it.each([
   null,
   {},
   { has_credits: false },
-  { balance: null },
-  { balance: "bad" },
-  { balance: 12 },
-  { balance: "-1" },
+  { has_credits: false, unlimited: false, balance: null },
+  { has_credits: false, balance: "0" },
+  { balance: "12.5" },
+])("adds no credits row for %j", async (credits) => {
+  const rows = (await snapshot(credits)).providers[0]!.rows;
+  expect(rows.map((row) => row.id)).toEqual(["openai.five_hour"]);
+});
+it.each([
+  { has_credits: true },
+  { has_credits: true, balance: null },
+  { has_credits: true, balance: "bad" },
+  { has_credits: true, balance: 12 },
+  { has_credits: true, balance: "-1" },
 ])("shows no data for %j", async (credits) => {
   const row = (await snapshot(credits)).providers[0]!.rows.find(
     (item) => item.id === "openai.codex_credits",
@@ -101,7 +110,7 @@ it("honors explicit unlimited before the balance", async () => {
   expect(row?.amount).toBeUndefined();
 });
 it("keeps fractions in compact surfaces and full units in reports", async () => {
-  const result = await snapshot({ balance: "1250.5" });
+  const result = await snapshot({ has_credits: true, balance: "1250.5" });
   const settings = defaultSettings();
   const texts = [
     sidebarPanel(result, settings, { nowMs: 0, width: 50, open: true }).lines,
@@ -124,7 +133,7 @@ it("keeps fractions in compact surfaces and full units in reports", async () => 
   ).toContain("1,250.5 credits left");
 });
 it("keeps account balances separate, named, hidden and pageable with stale warnings", async () => {
-  const result = await snapshot({ balance: "1250.5" }, true);
+  const result = await snapshot({ has_credits: true, balance: "1250.5" }, true);
   const settings = defaultSettings();
   settings.sidebar.names["openai.codex_credits"] = "My credits";
   result.providers[0]!.error = { code: "network" };

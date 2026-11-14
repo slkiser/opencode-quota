@@ -186,9 +186,7 @@ export function errorWords(
   nowMs: number,
 ): string | undefined {
   if (group.name === "Claude API" && group.error?.code === "not_configured") {
-    return group.error.detail?.includes("ANTHROPIC_CONSOLE_ORGANIZATION")
-      ? "Set ANTHROPIC_CONSOLE_ORGANIZATION"
-      : "Set ANTHROPIC_CONSOLE_COOKIE";
+    return "Set ANTHROPIC_CONSOLE_ORGANIZATION";
   }
   return group.error ? describeError(group.error, group.name, nowMs) : undefined;
 }
