@@ -107,6 +107,7 @@ Melde dich mit `/connect` an, und der Anbieter erscheint. Schalte Anbieter in `/
 | USA | Tarife |
 | --- | --- |
 | [Anthropic (Claude)](../providers.md#anthropic-claude)\* | Privat · Business |
+| Command Code | Privat · Business |
 | [Cursor](../providers.md#cursor)\* | Privat · Business |
 | [Gemini CLI](../providers.md#gemini-cli)\* | Business |
 | GitHub Copilot | Privat · [Business](../providers.md#github-copilot)\* |

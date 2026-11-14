@@ -107,6 +107,7 @@ OpenCode を再起動して `/quota` と入力します。上限を表示する�
 | 米国 | プラン |
 | --- | --- |
 | [Anthropic (Claude)](../providers.md#anthropic-claude)\* | 個人 · ビジネス |
+| Command Code | 個人 · ビジネス |
 | [Cursor](../providers.md#cursor)\* | 個人 · ビジネス |
 | [Gemini CLI](../providers.md#gemini-cli)\* | ビジネス |
 | GitHub Copilot | 個人 · [ビジネス](../providers.md#github-copilot)\* |
