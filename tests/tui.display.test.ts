@@ -145,15 +145,15 @@ describe("the Settings tabs' field table", () => {
   it("names the preset the lines match, else your own, and a preset sets its lines", () => {
     const defaults = defaultSettings();
     expect([choiceOf(defaults, "layout"), choiceOf(defaults, "toast")]).toEqual([
-      "comfortable",
+      "normal",
       "normal",
     ]);
     const own = cycled(defaults, field("layout.indent"), 1);
     expect(choiceOf(own, "layout")).toBeUndefined();
     expect(choiceOf(withPreset(own, "layout", 1), "layout")).toBe("compact");
-    const roomy = withPreset(defaults, "layout", 1);
-    expect([choiceOf(roomy, "layout"), roomy.layout]).toEqual([
-      "roomy",
+    const large = withPreset(defaults, "layout", 1);
+    expect([choiceOf(large, "layout"), large.layout]).toEqual([
+      "large",
       { ...defaults.layout, indent: 2, providerGap: 2 },
     ]);
     const quiet = withPreset(defaults, "toast", -1);
