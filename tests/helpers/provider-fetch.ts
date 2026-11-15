@@ -12,9 +12,16 @@ import { rowsFromProviderResult } from "../../src/core/rows.js";
 import type { Amount, QuotaRow } from "../../src/core/types.js";
 import { API_KEY_VENDORS } from "../../src/lib/api-key-resolver.js";
 import type { QuotaProvider } from "../../src/lib/entries.js";
-import { createSqliteCredentialSource } from "../../src/lib/opencode-auth-sqlite.js";
+import {
+  clearCredentialCatalogCacheForTests,
+  createSqliteCredentialSource,
+} from "../../src/lib/opencode-auth-sqlite.js";
 import { bindCredentialSource, notifyCredentialsChanged } from "../../src/lib/opencode-auth.js";
-import { type CredentialDatabaseRow, writeCredentialDatabase } from "./credential-database.js";
+import {
+  type CredentialDatabaseOptions,
+  type CredentialDatabaseRow,
+  writeCredentialDatabase,
+} from "./credential-database.js";
 import { NO_PROJECT_DIRECTORY, useOpencodeFolders } from "./opencode-folders.js";
 import { isLedgerRowKey } from "./provider-assertions.js";
 
@@ -38,7 +45,7 @@ export type ProviderWorld = {
   /** OpenCode's config folder (`opencode.json`, `opencode-quota/…`). */
   readonly configDir: string;
   /** Stores these logins in OpenCode's database, replacing any stored before. */
-  storeLogins(rows: readonly CredentialDatabaseRow[]): void;
+  storeLogins(rows: readonly CredentialDatabaseRow[], options?: CredentialDatabaseOptions): void;
   /** Writes a file below the config folder. */
   writeConfigFile(relativePath: string, content: string): void;
   /** Writes a file below OpenCode's cache folder (its plugin packages); returns its path. */
@@ -54,11 +61,13 @@ export function useProviderWorld(): ProviderWorld {
   const world: ProviderWorld = {
     root: folders.root,
     configDir: folders.configDir,
-    storeLogins(rows) {
+    storeLogins(rows, options) {
       const databasePath = join(folders.dataDir, "opencode.db");
       rmSync(databasePath, { force: true });
       mkdirSync(dirname(databasePath), { recursive: true });
-      writeCredentialDatabase(databasePath, rows);
+      writeCredentialDatabase(databasePath, rows, options);
+      // The parsed catalog belongs to the database that was just replaced.
+      clearCredentialCatalogCacheForTests();
       notifyCredentialsChanged();
     },
     writeConfigFile(relativePath, content) {
@@ -77,12 +86,14 @@ export function useProviderWorld(): ProviderWorld {
   beforeEach(() => {
     process.env = { ...originalEnv };
     for (const name of PROVIDER_ENV_NAMES) delete process.env[name];
+    clearCredentialCatalogCacheForTests();
     unbind = bindCredentialSource(createSqliteCredentialSource());
     notifyCredentialsChanged();
   });
 
   afterEach(() => {
     unbind();
+    clearCredentialCatalogCacheForTests();
     notifyCredentialsChanged();
     process.env = originalEnv;
   });

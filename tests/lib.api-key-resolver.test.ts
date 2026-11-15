@@ -2,7 +2,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { CredentialRow } from "../src/lib/opencode-auth.js";
-import { createFakeIntegration } from "./helpers/fake-integration.js";
+import { createFakeIntegration, type FakeCredential } from "./helpers/fake-integration.js";
 
 const mocks = vi.hoisted(() => ({
   existsSync: vi.fn(),
@@ -30,6 +30,8 @@ import {
   getApiKeyLoginDiagnostics,
   firstLoginRow,
   parseApiKeyLogin,
+  readKeyLogins,
+  readVendorKeys,
   resolveApiKey,
   resolveApiKeyFromEnvAndConfig,
   resolveApiKeyLogin,
@@ -532,6 +534,73 @@ describe("API key login vendors (a broken stored login is reported, not skipped)
       });
     },
   );
+});
+
+describe("logins OpenCode no longer registers", () => {
+  /** A stored key login; `registered: false` is one the id list() does not show. */
+  function keyLogin(integrationId: string, id: string, registered = true) {
+    return {
+      integrationId,
+      id,
+      label: "default",
+      registered,
+      method: "key" as const,
+      value: { type: "key", key: `${id}-key` },
+    };
+  }
+
+  /** Binds these logins as the credential source while `check` runs. */
+  async function withLogins<T>(credentials: FakeCredential[], check: () => Promise<T>): Promise<T> {
+    const actual = await vi.importActual<typeof import("../src/lib/opencode-auth.js")>(
+      "../src/lib/opencode-auth.js",
+    );
+    const integration = createFakeIntegration(credentials);
+    const unbind = actual.bindCredentialSource(
+      actual.createIntegrationCredentialSource(integration as never),
+    );
+    try {
+      return await check();
+    } finally {
+      unbind();
+      actual.notifyCredentialsChanged();
+    }
+  }
+
+  it("drops a login stored under an id OpenCode no longer has, and reports that id", async () => {
+    const result = await withLogins([keyLogin("kimi-for-coding", "cred_stranded", false)], () =>
+      readKeyLogins(API_KEY_VENDORS["kimi-code-plan-cn"]),
+    );
+
+    expect(result).toEqual({ logins: [], ignored: ["kimi-for-coding"] });
+  });
+
+  it("keeps two ids holding the same key as two logins", async () => {
+    const result = await withLogins(
+      [keyLogin("kimi", "cred_one"), keyLogin("kimi-for-coding", "cred_two")],
+      () => readKeyLogins(API_KEY_VENDORS["kimi-code-plan-cn"]),
+    );
+
+    expect(result.logins.map(({ row }) => row.id).sort()).toEqual(["cred_one", "cred_two"]);
+    expect(result.ignored).toEqual([]);
+  });
+
+  it("never reads the fallback login row for a vendor whose only login is stranded", async () => {
+    mocks.readActiveCredentialRowsCached.mockResolvedValue(
+      asRows({ "kimi-for-coding": { type: "api", key: "stranded-key" } }),
+    );
+
+    const keys = await withLogins([keyLogin("kimi-for-coding", "cred_stranded", false)], () =>
+      readVendorKeys(API_KEY_VENDORS["kimi-code-plan-cn"], PROJECT),
+    );
+
+    expect(keys).toEqual({
+      envOrConfig: null,
+      logins: [],
+      broken: null,
+      ignored: ["kimi-for-coding"],
+    });
+    expect(mocks.readActiveCredentialRowsCached).not.toHaveBeenCalled();
+  });
 });
 
 describe("per-vendor differences", () => {

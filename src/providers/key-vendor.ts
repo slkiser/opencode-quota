@@ -3,7 +3,7 @@
  * the vendor shows, its stored-login accounts and its key status details all come from it.
  */
 
-import { hasVendorKey, type VendorKeys } from "../lib/api-key-resolver.js";
+import { hasVendorKey, IGNORED_LOGIN_NOTE, type VendorKeys } from "../lib/api-key-resolver.js";
 import type { QuotaProviderContext } from "../lib/entries.js";
 import type { CredentialRow } from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
@@ -38,8 +38,10 @@ export async function isKeyVendorAvailable(params: {
 
 /**
  * Each stored key login as its own account (a broken login as its error; `brokenFirst` lists
- * those before the fetched ones), or the broken first login as the vendor's one error. Not
- * attempted without either. The env or config key is the vendor's own to fetch.
+ * those before the fetched ones), or the broken first login as the vendor's one error. A login
+ * stranded under an integration id OpenCode no longer registers becomes one "sign in again"
+ * error and is never queried. Not attempted without any of these. The env or config key is the
+ * vendor's own to fetch.
  */
 export async function fetchStoredKeys(params: {
   providerName: string;
@@ -49,6 +51,14 @@ export async function fetchStoredKeys(params: {
 }): Promise<{ attempted: boolean; accounts: AccountResult[] }> {
   const { keys } = params;
   if (keys.logins.length === 0) {
+    if (keys.ignored.length > 0) {
+      return {
+        attempted: true,
+        accounts: [
+          failedAccount(params.providerName, IGNORED_LOGIN_NOTE, { code: "login_expired" }),
+        ],
+      };
+    }
     return keys.broken === null
       ? { attempted: false, accounts: [] }
       : { attempted: true, accounts: [failedAccount(params.providerName, keys.broken)] };

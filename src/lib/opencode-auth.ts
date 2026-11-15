@@ -38,6 +38,12 @@ export type CredentialRow = {
    * consumers show `resolveError` as a per-account error.
    */
   resolveError?: string;
+  /**
+   * Whether OpenCode still registers this row's integration id: a login stored
+   * under an id OpenCode no longer has cannot be used or logged out there.
+   * Absent means the source cannot tell, so the login is kept.
+   */
+  registered?: boolean;
 };
 
 /**
@@ -227,21 +233,26 @@ export function getCredentialSourceDiagnostics(): CredentialSourceDiagnostics {
 }
 
 type ConnectionSlot =
-  | { integrationId: string; connection: CredentialConnection }
-  | { integrationId: string; activeFailure: CredentialFailure };
+  | { integrationId: string; connection: CredentialConnection; registered?: boolean }
+  | { integrationId: string; activeFailure: CredentialFailure; registered?: boolean };
 
 type ResolveOutcome = { value: CredentialValue } | { failure: CredentialFailure };
 
-/** The active connection of one integration id; works for ids OpenCode has not registered. */
+/**
+ * The active connection of one integration id; works for ids OpenCode has not registered.
+ * `registered` is passed on when the caller knows whether OpenCode still lists the id.
+ */
 async function activeConnectionSlots(
   integration: CredentialIntegration,
   integrationId: string,
+  registered?: boolean,
 ): Promise<ConnectionSlot[]> {
+  const known = registered === undefined ? {} : { registered };
   try {
     const connection = await integration.connection.active(integrationId);
     credentialFailures.delete(integrationId);
     // An env connection means no stored login; providers apply their own env rules.
-    return connection?.type === "credential" ? [{ integrationId, connection }] : [];
+    return connection?.type === "credential" ? [{ integrationId, connection, ...known }] : [];
   } catch (error) {
     const activeFailure: CredentialFailure = {
       at: Date.now(),
@@ -251,7 +262,7 @@ async function activeConnectionSlots(
       label: "",
     };
     credentialFailures.set(integrationId, activeFailure);
-    return [{ integrationId, activeFailure }];
+    return [{ integrationId, activeFailure, ...known }];
   }
 }
 
@@ -298,7 +309,8 @@ async function listedConnectionSlots(
   for (const integrationId of integrationIds) {
     const connections = listed?.get(integrationId);
     if (connections === undefined) {
-      for (const slot of await activeConnectionSlots(integration, integrationId)) {
+      // Not registered: OpenCode can neither use nor log out this login.
+      for (const slot of await activeConnectionSlots(integration, integrationId, false)) {
         slots.push(slot);
         if ("connection" in slot) activeConnections.set(integrationId, slot.connection);
       }
@@ -308,7 +320,8 @@ async function listedConnectionSlots(
       (connection): connection is CredentialConnection => connection.type === "credential",
     );
     if (credentials.length === 0) continue;
-    for (const connection of credentials) slots.push({ integrationId, connection });
+    for (const connection of credentials)
+      slots.push({ integrationId, connection, registered: true });
     const active = await activeListedConnection(integration, integrationId);
     if (active) activeConnections.set(integrationId, active);
   }
@@ -389,6 +402,7 @@ async function credentialRowForSlot(
   slot: ConnectionSlot,
   methods: readonly CredentialMethod[] | undefined,
 ): Promise<CredentialRow> {
+  const registered = slot.registered === undefined ? {} : { registered: slot.registered };
   if ("activeFailure" in slot) {
     const failure = slot.activeFailure;
     return {
@@ -400,6 +414,7 @@ async function credentialRowForSlot(
       // gets a key-shaped failure, every other read an OAuth-shaped one.
       value: { type: methods && !methods.includes("oauth") ? "api" : "oauth" },
       resolveError: `${failure.category}: ${failure.detail}`,
+      ...registered,
     };
   }
 
@@ -410,6 +425,7 @@ async function credentialRowForSlot(
     integrationId: slot.integrationId,
     label: connection.label,
     active: false,
+    ...registered,
   };
   return "value" in outcome
     ? { ...row, value: credentialRowValue(outcome.value) }

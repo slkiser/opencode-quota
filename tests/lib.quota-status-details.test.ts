@@ -8,6 +8,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
 
+import { IGNORED_LOGIN_NOTE } from "../src/lib/api-key-resolver.js";
 import { QUOTA_PROVIDER_CATALOG } from "../src/lib/provider-metadata.js";
 import { debugDetailRules } from "../src/lib/quota-status.js";
 
@@ -196,5 +197,17 @@ describe("/quota_status debug detail rules", () => {
       ...[...writtenByProvider.values()].flatMap((keys) => [...keys]),
     ];
     for (const shape of Object.keys(KEY_SHAPES)) expect(written).toContain(shape);
+  });
+
+  it("shows the ids of stranded logins and their note, never an id it does not know", () => {
+    const context = { homeDir: "", envNames: [] };
+    const { shared } = debugDetailRules("kimi-code-plan-cn");
+
+    // The renamed id is one this plugin knows; any other is a placeholder.
+    expect(shared.auth_logins_ignored?.("kimi-code-plan-cn | kimi-for-coding", context)).toBe(
+      "kimi-code-plan-cn | kimi-for-coding",
+    );
+    expect(shared.auth_logins_ignored?.("gone-provider", context)).toBe("(other integration)");
+    expect(shared.auth_login_note?.(IGNORED_LOGIN_NOTE, context)).toBe(IGNORED_LOGIN_NOTE);
   });
 });

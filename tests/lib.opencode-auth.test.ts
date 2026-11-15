@@ -283,6 +283,7 @@ describe("integration credential source", () => {
         integrationId: "openai",
         label: "Personal",
         active: true,
+        registered: true,
         value: {
           accountID: "acct_1",
           type: "oauth",
@@ -298,6 +299,7 @@ describe("integration credential source", () => {
         integrationId: "openai",
         label: "Work",
         active: false,
+        registered: true,
         value: {
           type: "oauth",
           methodID: "device",
@@ -312,6 +314,7 @@ describe("integration credential source", () => {
         label: "default",
         // The connection active("deepseek") reports, so its row is the active one.
         active: true,
+        registered: true,
         value: { region: "eu", type: "api", key: "deepseek-key", metadata: { region: "eu" } },
       },
     ]);
@@ -335,6 +338,17 @@ describe("integration credential source", () => {
     ]);
 
     expect(await readIds(["openai", "codex"])).toEqual(["cred_openai", "cred_codex_newest"]);
+    // The id list() does not show is a login OpenCode can neither use nor log out.
+    expect(
+      (await readCredentialRows(["openai", "codex"])).map((row) => [row.id, row.registered]),
+    ).toEqual([
+      ["cred_openai", true],
+      ["cred_codex_newest", false],
+    ]);
+    // A firstOnly read never lists, so it cannot tell and keeps the login.
+    expect(
+      (await readCredentialRows(["codex"], { firstOnly: true })).map((row) => row.registered),
+    ).toEqual([undefined]);
   });
 
   it("skips env connections, which are not stored logins", async () => {
@@ -518,6 +532,7 @@ describe("integration credential source", () => {
         integrationId: "openai",
         label: "Work",
         active: true,
+        registered: true,
         value: { type: "oauth" },
         resolveError: "refresh_failed: Token refresh failed: 400",
       },
@@ -623,6 +638,7 @@ describe("integration credential source", () => {
         integrationId: "deepseek",
         label: "default",
         active: true,
+        registered: true,
         value: { type: "api" },
         resolveError: "resolve_empty: OpenCode returned no login",
       },

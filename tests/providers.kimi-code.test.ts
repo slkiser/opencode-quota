@@ -319,6 +319,35 @@ describe("Kimi Code regions", () => {
     await expect(kimiCodePlanCnProvider.isAvailable(ctx as never)).resolves.toBe(true);
   });
 
+  it("shows one sign-in error for a login stored under an id OpenCode no longer has", async () => {
+    // The cached models.dev catalog no longer names `kimi-for-coding` (it became
+    // `kimi-code-plan-cn`), so OpenCode can neither use nor log out that login.
+    world.storeLogins([keyLogin("stranded", "kimi-for-coding", "stranded-key")], {
+      catalog: { "kimi-code-plan-cn": {} },
+    });
+    const http = fakeHttp(() => weeklyReply(10));
+    const ctx = {
+      config: {},
+      locationDirectory: NO_PROJECT_DIRECTORY,
+      resolveRuntimeProviderIds: async () => new Set(["kimi-code-plan-cn"]),
+    };
+
+    await expect(kimiCodePlanCnProvider.isAvailable(ctx as never)).resolves.toBe(true);
+    const fetched = await fetchRows(kimiCodePlanCnProvider);
+
+    expect(http).not.toHaveBeenCalled();
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.error?.code).toBe("login_expired");
+    // One account, so one error, carrying the full note.
+    expect(fetched.debug.filter((item) => item.key === "error")).toEqual([
+      {
+        key: "error",
+        value: `Kimi Code (CN): This login is stored under an integration id OpenCode no longer has, so \`opencode auth logout\` cannot remove it. Log in again on the current id.`,
+      },
+    ]);
+    expect(fetched.debug).toContainEqual({ key: "auth_logins_ignored", value: "kimi-for-coding" });
+  });
+
   it.each([
     ["kimi-code-plan-global/k3", true, false],
     ["kimi-code-plan-cn/k3", false, true],

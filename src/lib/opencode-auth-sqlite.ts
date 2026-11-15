@@ -19,11 +19,48 @@ import {
 } from "./opencode-auth.js";
 import { openOpenCodeSqliteReadOnly, type SqliteConn } from "./opencode-sqlite.js";
 
+/** The `kv` key of the models.dev catalog OpenCode caches in its database. */
+const CATALOG_KEY = "models-dev:v2:catalog";
+
+/**
+ * The provider ids of that catalog, parsed once per process (its value is about 12 MB); `null`
+ * when it is absent or unreadable, and `undefined` before the first read.
+ */
+let registeredIntegrationIds: Set<string> | null | undefined;
+
 /** The OpenCode 2 method of a parsed credential value (the reader maps a stored `key` to `api`). */
 function credentialMethod(value: Record<string, unknown>): CredentialMethod | undefined {
   if (value.type === "oauth") return "oauth";
   if (value.type === "api" || value.type === "key") return "key";
   return undefined;
+}
+
+/**
+ * The provider ids the cached models.dev catalog names: a login under any other integration id is
+ * one OpenCode no longer registers. Null when there is no catalog, or it cannot be read or parsed
+ * (then every login is kept).
+ */
+function readRegisteredIntegrationIds(database: SqliteConn): Set<string> | null {
+  if (registeredIntegrationIds !== undefined) return registeredIntegrationIds;
+  try {
+    const row = database.get<Record<string, unknown>>("SELECT value FROM kv WHERE key = ?", [
+      CATALOG_KEY,
+    ]);
+    const entry: unknown = typeof row?.value === "string" ? JSON.parse(row.value) : undefined;
+    // The catalog sits in `body` as a JSON string (OpenCode stores it double-encoded).
+    const body = isRecord(entry) ? entry.body : undefined;
+    const catalog: unknown = typeof body === "string" ? JSON.parse(body) : body;
+    const ids = isRecord(catalog) ? Object.keys(catalog) : [];
+    registeredIntegrationIds = ids.length > 0 ? new Set(ids) : null;
+  } catch {
+    registeredIntegrationIds = null;
+  }
+  return registeredIntegrationIds;
+}
+
+/** Drops the parsed catalog, so the next read in this process reads it again. */
+export function clearCredentialCatalogCacheForTests(): void {
+  registeredIntegrationIds = undefined;
 }
 
 async function readCredentialDatabase(path: string): Promise<CredentialRow[]> {
@@ -32,6 +69,7 @@ async function readCredentialDatabase(path: string): Promise<CredentialRow[]> {
   let database: SqliteConn | undefined;
   try {
     database = await openOpenCodeSqliteReadOnly(path);
+    const registeredIds = readRegisteredIntegrationIds(database);
     const rows = database.all<Record<string, unknown>>(
       "SELECT id, integration_id, label, active, value FROM credential WHERE integration_id IS NOT NULL ORDER BY active DESC, time_updated DESC, id DESC",
     );
@@ -53,6 +91,7 @@ async function readCredentialDatabase(path: string): Promise<CredentialRow[]> {
           label: row.label,
           active: row.active === 1,
           value,
+          ...(registeredIds ? { registered: registeredIds.has(row.integration_id) } : {}),
         });
       }
     }

@@ -49,7 +49,7 @@ import {
   NO_QUOTA_DATA_HINT,
   NO_WINDOW_DATA_HINT,
 } from "./alibaba.js";
-import { API_KEY_VENDORS } from "./api-key-resolver.js";
+import { API_KEY_VENDORS, IGNORED_LOGIN_NOTE } from "./api-key-resolver.js";
 import { COPILOT_AUTH_KEYS } from "./copilot.js";
 import { CURSOR_CANONICAL_PLUGIN_PACKAGE } from "./cursor-detection.js";
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
@@ -935,6 +935,16 @@ const pathList: DebugRule = (value, context) =>
     .map((path) => pathOrEnv(path, context))
     .join(" | ");
 
+/**
+ * Integration ids joined by " | ", for logins skipped because OpenCode no longer registers them:
+ * an id this plugin does not know shows as a placeholder, like the credential-source failures.
+ */
+const integrationIdList: DebugRule = (value) =>
+  value
+    .split(" | ")
+    .map((id) => (OPENCODE_PROVIDER_IDS.has(id) ? id : "(other integration)"))
+    .join(" | ");
+
 /** Where an API key came from: `env:NAME`, a config file name, or a path. */
 const keySource: DebugRule = (value, context) =>
   KEY_FILE_SOURCES.has(value) ? value : pathOrEnv(value, context);
@@ -1003,6 +1013,8 @@ const API_KEY_DETAILS: DebugRules = {
   ...each(pathList, "api_key_checked_paths", "api_key_credential_database_paths"),
   auth_state: oneOf("none", "configured", "invalid"),
   auth_error: present,
+  auth_logins_ignored: integrationIdList,
+  auth_login_note: oneOf(IGNORED_LOGIN_NOTE),
 };
 const GOOGLE_DETAILS: DebugRules = {
   auth_state: oneOf("missing", "present", "invalid"),

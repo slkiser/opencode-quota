@@ -14,12 +14,21 @@ export type CredentialDatabaseRow = {
 };
 
 /**
+ * The models.dev catalog OpenCode caches in its `kv` table: an object of provider ids, or the
+ * JSON string OpenCode keeps in its `body`. Without it the database has no `kv` table.
+ */
+export type CredentialDatabaseOptions = {
+  catalog?: Record<string, unknown> | string;
+};
+
+/**
  * Creates OpenCode 2's `credential` table in a new database file (use a temp dir) and
  * inserts `rows`.
  */
 export function writeCredentialDatabase(
   databasePath: string,
   rows: readonly CredentialDatabaseRow[],
+  options: CredentialDatabaseOptions = {},
 ): void {
   const database = new DatabaseSync(databasePath);
   try {
@@ -45,6 +54,18 @@ export function writeCredentialDatabase(
         JSON.stringify(row.value),
         row.active,
         row.updated,
+      );
+    }
+    if (options.catalog !== undefined) {
+      database.exec("CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+      database.prepare("INSERT INTO kv VALUES (?, ?)").run(
+        "models-dev:v2:catalog",
+        JSON.stringify({
+          updatedAt: 0,
+          digest: "test",
+          body:
+            typeof options.catalog === "string" ? options.catalog : JSON.stringify(options.catalog),
+        }),
       );
     }
   } finally {
