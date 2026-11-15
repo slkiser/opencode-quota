@@ -25,22 +25,37 @@ export type SaveState =
 const LOADING = { state: "loading" } as const;
 const failed = (error: unknown) => ({ state: "failed", message: rpcErrorMessage(error) }) as const;
 
-/** One timer at a time: a newer start replaces the older timer, and stop clears it. */
+type TimerState =
+  | { state: "idle" }
+  | { state: "running"; timer: ReturnType<typeof setTimeout> }
+  | { state: "closed" };
+
+/**
+ * One timer at a time: a newer start replaces the older timer and cancel clears it. After close,
+ * starts do nothing, so a Save or Copy that ends after the page closed starts no timer.
+ */
 function oneTimer() {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const stop = () => {
-    clearTimeout(timer);
-    timer = undefined;
+  let current: TimerState = { state: "idle" };
+  const cancel = () => {
+    if (current.state !== "running") return;
+    clearTimeout(current.timer);
+    current = { state: "idle" };
   };
   return {
     start(ms: number, run: () => void): void {
-      stop();
-      timer = setTimeout(() => {
-        timer = undefined;
+      if (current.state === "closed") return;
+      cancel();
+      const timer = setTimeout(() => {
+        current = { state: "idle" };
         run();
       }, ms);
+      current = { state: "running", timer };
     },
-    stop,
+    cancel,
+    close(): void {
+      cancel();
+      current = { state: "closed" };
+    },
   };
 }
 
@@ -55,7 +70,7 @@ export function createNote(ms: number) {
       timer.start(ms, () => setShown(false));
     },
     /** The page closed. */
-    stop: timer.stop,
+    stop: timer.close,
   };
 }
 
@@ -64,7 +79,7 @@ export function createSave(saveDraft: () => Promise<void>) {
   const [state, setState] = createSignal<SaveState>({ state: "idle" });
   const timer = oneTimer();
   const become = (next: SaveState) => {
-    timer.stop();
+    timer.cancel();
     setState(next);
   };
   return {
@@ -84,7 +99,7 @@ export function createSave(saveDraft: () => Promise<void>) {
       if (state().state === "failed") become({ state: "idle" });
     },
     /** The page closed. */
-    stop: timer.stop,
+    stop: timer.close,
   };
 }
 

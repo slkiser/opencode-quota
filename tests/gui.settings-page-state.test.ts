@@ -68,4 +68,18 @@ describe("the Save and Copy notes", () => {
     note.stop();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("starts no timer for a Save or Copy that ends after the page closed", async () => {
+    vi.useFakeTimers();
+    const pending = Promise.withResolvers<void>();
+    const save = createSave(() => pending.promise);
+    const note = createNote(2_000);
+    const saving = save.save();
+    save.stop();
+    note.stop();
+    pending.resolve();
+    await saving;
+    note.show();
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
