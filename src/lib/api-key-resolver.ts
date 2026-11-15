@@ -15,6 +15,7 @@ import {
   getCredentialDatabasePaths,
   readActiveCredentialRowsCached,
   readCredentialRows,
+  selectConnectionCredentialRows,
 } from "./opencode-auth.js";
 import {
   existingOpenCodeConfigFiles,
@@ -376,9 +377,10 @@ export type KeyLogin = {
 
 /**
  * Every key login of the vendor stored in OpenCode, in OpenCode's order, with what each one
- * holds. `selectRows` narrows the logins further, for example to drop alias duplicates. A login
- * stored under an integration id OpenCode no longer registers is dropped and reported instead:
- * OpenCode can neither use nor log it out.
+ * holds. `selectRows` narrows the logins further; by default a login holding a value another
+ * login already holds is the same account, so it appears once. A login stored under an
+ * integration id OpenCode no longer registers is dropped and reported instead: OpenCode can
+ * neither use nor log it out.
  */
 export async function readKeyLogins(
   spec: ApiKeyLoginSpec,
@@ -393,7 +395,9 @@ export async function readKeyLogins(
     ),
   ].sort();
   const kept = vendorRows.filter((row) => row.registered !== false);
-  const rows = options.selectRows ? options.selectRows(kept) : kept;
+  const rows = options.selectRows
+    ? options.selectRows(kept)
+    : selectConnectionCredentialRows(kept, spec.authKeys[0]);
   const logins = rows.flatMap((row) => {
     const auth = parseApiKeyLogin(spec, row);
     if (auth.state === "none") return [];

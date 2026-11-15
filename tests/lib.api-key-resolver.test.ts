@@ -538,14 +538,14 @@ describe("API key login vendors (a broken stored login is reported, not skipped)
 
 describe("logins OpenCode no longer registers", () => {
   /** A stored key login; `registered: false` is one the id list() does not show. */
-  function keyLogin(integrationId: string, id: string, registered = true) {
+  function keyLogin(integrationId: string, id: string, registered = true, key = `${id}-key`) {
     return {
       integrationId,
       id,
       label: "default",
       registered,
       method: "key" as const,
-      value: { type: "key", key: `${id}-key` },
+      value: { type: "key", key },
     };
   }
 
@@ -574,13 +574,26 @@ describe("logins OpenCode no longer registers", () => {
     expect(result).toEqual({ logins: [], ignored: ["kimi-for-coding"] });
   });
 
-  it("keeps two ids holding the same key as two logins", async () => {
+  it("keeps two ids holding different keys as two logins", async () => {
     const result = await withLogins(
       [keyLogin("kimi", "cred_one"), keyLogin("kimi-for-coding", "cred_two")],
       () => readKeyLogins(API_KEY_VENDORS["kimi-code-plan-cn"]),
     );
 
     expect(result.logins.map(({ row }) => row.id).sort()).toEqual(["cred_one", "cred_two"]);
+    expect(result.ignored).toEqual([]);
+  });
+
+  it("counts one key stored under two registered ids as one login", async () => {
+    const result = await withLogins(
+      [
+        keyLogin("kimi-for-coding", "cred_old", true, "shared-key"),
+        keyLogin("kimi-code-plan-cn", "cred_new", true, "shared-key"),
+      ],
+      () => readKeyLogins(API_KEY_VENDORS["kimi-code-plan-cn"]),
+    );
+
+    expect(result.logins.map(({ row }) => row.id)).toEqual(["cred_new"]);
     expect(result.ignored).toEqual([]);
   });
 
