@@ -32,6 +32,12 @@ export type CredentialRow = {
   active: boolean;
   value: Record<string, unknown>;
   /**
+   * The registered name of the row's integration (`GitHub Copilot` for
+   * `github-copilot`). OpenCode labels every login the user never named with this
+   * name, so a label equal to it is not an alias; absent when unknown.
+   */
+  integrationName?: string;
+  /**
    * Why OpenCode could not return this login (for example a failed token
    * refresh), as `<category>: <scrubbed detail>`. A failed row keeps its id,
    * label and position, but its `value` is only `{ type: "api" | "oauth" | "external" }`;
@@ -128,6 +134,19 @@ let lastListError: { at: number; detail: string } | undefined;
  */
 const GENERIC_CREDENTIAL_LABELS: ReadonlySet<string> = new Set(["default", "oauth", "api key"]);
 
+/**
+ * Whether `label` is the name OpenCode itself gives an unnamed login: the
+ * integration's registered name, numbered `"<name> 2"` for the second login.
+ */
+function isIntegrationAutoLabel(label: string, integrationName: string | undefined): boolean {
+  const name = integrationName?.trim().toLowerCase();
+  if (!name) return false;
+  const candidate = label.toLowerCase();
+  if (candidate === name) return true;
+  if (!candidate.startsWith(`${name} `)) return false;
+  return /^ \d+$/u.test(candidate.slice(name.length));
+}
+
 export function formatCredentialDisplayNames(
   providerName: string,
   credentials: ReadonlyArray<{
@@ -140,7 +159,8 @@ export function formatCredentialDisplayNames(
     const alias = row.label.trim();
     return !alias ||
       GENERIC_CREDENTIAL_LABELS.has(alias.toLowerCase()) ||
-      alias.toLowerCase() === providerName.toLowerCase()
+      alias.toLowerCase() === providerName.toLowerCase() ||
+      isIntegrationAutoLabel(alias, row.integrationName)
       ? ""
       : alias;
   });
@@ -233,8 +253,18 @@ export function getCredentialSourceDiagnostics(): CredentialSourceDiagnostics {
 }
 
 type ConnectionSlot =
-  | { integrationId: string; connection: CredentialConnection; registered?: boolean }
-  | { integrationId: string; activeFailure: CredentialFailure; registered?: boolean };
+  | {
+      integrationId: string;
+      connection: CredentialConnection;
+      registered?: boolean;
+      integrationName?: string;
+    }
+  | {
+      integrationId: string;
+      activeFailure: CredentialFailure;
+      registered?: boolean;
+      integrationName?: string;
+    };
 
 type ResolveOutcome = { value: CredentialValue } | { failure: CredentialFailure };
 
@@ -295,9 +325,11 @@ async function listedConnectionSlots(
   integrationIds: readonly string[],
 ): Promise<{ slots: ConnectionSlot[]; activeConnections: Map<string, CredentialConnection> }> {
   let listed: Map<string, readonly Connection[]> | undefined;
+  let integrationNames: Map<string, string> | undefined;
   try {
     const { data } = await integration.list();
     listed = new Map(data.map((info) => [info.id, info.connections]));
+    integrationNames = new Map(data.map((info) => [info.id, info.name]));
     lastListError = undefined;
   } catch (error) {
     // One malformed login anywhere makes list() fail; each id's active login still reads.
@@ -320,8 +352,15 @@ async function listedConnectionSlots(
       (connection): connection is CredentialConnection => connection.type === "credential",
     );
     if (credentials.length === 0) continue;
-    for (const connection of credentials)
-      slots.push({ integrationId, connection, registered: true });
+    const integrationName = integrationNames?.get(integrationId);
+    for (const connection of credentials) {
+      slots.push({
+        integrationId,
+        connection,
+        registered: true,
+        ...(integrationName ? { integrationName } : {}),
+      });
+    }
     const active = await activeListedConnection(integration, integrationId);
     if (active) activeConnections.set(integrationId, active);
   }
@@ -426,6 +465,7 @@ async function credentialRowForSlot(
     label: connection.label,
     active: false,
     ...registered,
+    ...(slot.integrationName ? { integrationName: slot.integrationName } : {}),
   };
   return "value" in outcome
     ? { ...row, value: credentialRowValue(outcome.value) }

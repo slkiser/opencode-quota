@@ -358,6 +358,26 @@ describe("the terminal command's database login reader", () => {
     }
   });
 
+  it("takes each login's integration name from the cached models.dev catalog", async () => {
+    writeCredentialDatabase(databasePath, BASE_ROWS, {
+      catalog: { "github-copilot": { name: "GitHub Copilot" }, openai: { name: "OpenAI" } },
+    });
+
+    const rows = await readCredentialRows(["github-copilot", "openai", "deepseek"]);
+    expect(rows.map((row) => [row.id, row.integrationName])).toEqual([
+      ["deepseek", undefined],
+      ["openai", "OpenAI"],
+      ["copilot", "GitHub Copilot"],
+    ]);
+  });
+
+  it("leaves the integration name absent when the database has no cached catalog", async () => {
+    writeCredentialDatabase(databasePath, BASE_ROWS);
+
+    const rows = await readCredentialRows(["github-copilot", "openai", "deepseek"]);
+    expect(rows.map((row) => row.integrationName)).toEqual([undefined, undefined, undefined]);
+  });
+
   it("leaves the database file byte-for-byte unchanged and reports sqlite as the source", async () => {
     writeCredentialDatabase(databasePath, BASE_ROWS);
     const before = sha256(databasePath);
