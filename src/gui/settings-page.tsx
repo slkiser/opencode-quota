@@ -29,7 +29,6 @@ import type { QuotaSnapshot, QuotaWindow } from "../core/types.js";
 import { ALL_PROVIDERS, WINDOWS } from "../core/windows.js";
 import {
   isSettingsFilePath,
-  type Notice,
   type QuotaRpcSettingsOutput,
   type QuotaRpcSettingsSchemaOutput,
 } from "../rpc.js";
@@ -68,6 +67,7 @@ import {
   typedNumber,
   type Words,
 } from "./settings-model.js";
+import { createNote, createPluginChecks, createSave, type Load } from "./settings-page-state.js";
 import { SURFACE_GROUPS, settingsFromValues } from "./surface-settings.js";
 
 /** The page's id: its Settings tab, and `ctx.layout.settings`'s argument. */
@@ -325,9 +325,12 @@ function surfaceKeys(rules: Readonly<Record<string, SettingRule>>): string[] {
 
 function Page(props: Shown) {
   const { ctx, draft } = props;
-  const [saving, setSaving] = createSignal(false);
-  const [saveError, setSaveError] = createSignal<string>();
-  const [savedNote, setSavedNote] = createSignal(false);
+  const saving = createSave(() => draft.save());
+  onCleanup(saving.stop);
+  const saveError = () => {
+    const shown = saving.state();
+    return shown.state === "failed" ? shown.message : undefined;
+  };
   /** What a row shows: null for a setting the file leaves unset whose unset isn't its default. */
   const valueOf = (key: string) => (draft.unset(key) ? null : draft.value(key));
   /** The settings the page shows, as the surfaces read them: the saved ones with the draft. */
@@ -341,20 +344,6 @@ function Page(props: Shown) {
     const before = shown();
     for (const [key, value] of changedSettings(before, edit(before), keys)) draft.set(key, value);
   };
-
-  async function save(): Promise<void> {
-    setSaving(true);
-    setSaveError(undefined);
-    try {
-      await draft.save();
-      setSavedNote(true);
-      setTimeout(() => setSavedNote(false), 3_000);
-    } catch (error) {
-      setSaveError(rpcErrorMessage(error));
-    } finally {
-      setSaving(false);
-    }
-  }
 
   async function discard(): Promise<void> {
     // An OpenCode without the app's confirmation dialog discards without asking.
@@ -371,7 +360,7 @@ function Page(props: Shown) {
     }
     if (confirmed) {
       draft.discard();
-      setSaveError(undefined);
+      saving.discarded();
     }
   }
 
@@ -393,19 +382,21 @@ function Page(props: Shown) {
         actions={
           <div class="oq-shead-actions">
             <span class="oq-small oq-muted" aria-live="polite">
-              {savedNote() && draft.count() === 0 ? ctx.t("settings.saved") : unsaved()}
+              {saving.state().state === "saved" && draft.count() === 0
+                ? ctx.t("settings.saved")
+                : unsaved()}
             </span>
             <ctx.ui.Button
-              disabled={draft.count() === 0 || saving()}
+              disabled={draft.count() === 0 || saving.state().state === "saving"}
               onClick={() => void discard()}
             >
               {ctx.t("settings.discard")}
             </ctx.ui.Button>
             <ctx.ui.Button
               variant="contrast"
-              busy={saving()}
+              busy={saving.state().state === "saving"}
               disabled={draft.count() === 0}
-              onClick={() => void save()}
+              onClick={() => void saving.save()}
             >
               {ctx.t("settings.save")}
             </ctx.ui.Button>
@@ -1149,55 +1140,37 @@ function TreeRow(
 /** The notices and the setup check with Copy, asked for at each visit. */
 function PluginExtras(props: SectionProps) {
   const { ctx, data } = props;
-  const [notices, setNotices] = createSignal<Notice[]>();
-  const [status, setStatus] = createSignal<string>();
-  const [problem, setProblem] = createSignal<string>();
-  const [statusProblem, setStatusProblem] = createSignal<string>();
-  const [copied, setCopied] = createSignal(false);
-  void data.notices().then(setNotices, (error: unknown) => setProblem(rpcErrorMessage(error)));
+  const checks = createPluginChecks(data);
+  const copied = createNote(2_000);
+  onCleanup(copied.stop);
+  void checks.loadNotices();
   // The setup check of the session shown, again when it changes; a late answer for another drops.
   createEffect(() => {
-    const sessionID = props.sessionID();
-    let current = true;
-    onCleanup(() => {
-      current = false;
-    });
-    setStatus(undefined);
-    setStatusProblem(undefined);
-    void data.status(sessionID).then(
-      (text) => {
-        if (current) setStatus(text);
-      },
-      (error: unknown) => {
-        if (current) setStatusProblem(rpcErrorMessage(error));
-      },
-    );
+    onCleanup(checks.checkStatus(props.sessionID()));
   });
+  const loaded = <T,>(load: Load<T>) => (load.state === "loaded" ? load.value : undefined);
+  const problem = (load: Load<unknown>) => (load.state === "failed" ? load.message : undefined);
+  const status = () => loaded(checks.status());
   const copy = () => {
     const text = status();
     if (text === undefined) return;
     void ctx.system
       .copy(text)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2_000);
-      })
+      .then(() => copied.show())
       .catch(() => {});
   };
   return (
     <>
-      <Show when={problem() ?? statusProblem()}>
+      <Show when={problem(checks.notices()) ?? problem(checks.status())}>
         {(message) => <p class="oq-error">{ctx.t("plugin.loadFailed", { message: message() })}</p>}
       </Show>
       <List heading={ctx.t("plugin.notices")}>
-        <Show
-          when={notices()}
-          fallback={
-            <p class="oq-notice">
-              <ctx.ui.Loader />
-            </p>
-          }
-        >
+        <Show when={checks.notices().state === "loading"}>
+          <p class="oq-notice">
+            <ctx.ui.Loader />
+          </p>
+        </Show>
+        <Show when={loaded(checks.notices())}>
           {(list) => (
             <Show
               when={list().length > 0}
@@ -1234,12 +1207,13 @@ function PluginExtras(props: SectionProps) {
         <div class="oq-subhead-action">
           <h4 class="oq-subhead">{ctx.t("plugin.status")}</h4>
           <ctx.ui.Button size="small" disabled={status() === undefined} onClick={copy}>
-            {copied() ? ctx.t("plugin.copied") : ctx.t("plugin.copy")}
+            {copied.shown() ? ctx.t("plugin.copied") : ctx.t("plugin.copy")}
           </ctx.ui.Button>
         </div>
-        <Show when={status()} fallback={<p class="oq-note">{ctx.t("plugin.statusLoading")}</p>}>
-          {(text) => <pre class="oq-status">{text()}</pre>}
+        <Show when={checks.status().state === "loading"}>
+          <p class="oq-note">{ctx.t("plugin.statusLoading")}</p>
         </Show>
+        <Show when={status()}>{(text) => <pre class="oq-status">{text()}</pre>}</Show>
       </div>
     </>
   );
