@@ -4,7 +4,7 @@
  * quota RPC), the presets, and the settings a section's Reset puts back. The rules decide every
  * key, kind, range and default; this map only groups and labels them. Pure.
  */
-import type { SettingRule, Settings } from "../settings/schema.js";
+import type { SettingRule, SurfaceSettings } from "../settings/display.js";
 import { THEME_COLOR_NAMES } from "../settings/shared.js";
 import { PROVIDERS_KEY } from "../tui/settings-draft.js";
 import { PRESET_CHOICES, type PresetName } from "../view/presets.js";
@@ -358,11 +358,11 @@ export function presetNames(name: PresetName): string[] {
  * tree edit (show or hide, order, name, window) sets in the draft.
  */
 export function changedSettings(
-  before: Settings,
-  after: Settings,
+  before: SurfaceSettings,
+  after: SurfaceSettings,
   keys: readonly string[],
 ): Array<[string, unknown]> {
-  const at = (settings: Settings, key: string) => {
+  const at = (settings: SurfaceSettings, key: string) => {
     let value: unknown = settings;
     for (const part of key.split(".")) {
       value =

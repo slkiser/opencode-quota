@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { QuotaSnapshot, ResetNotice } from "../src/core/types.js";
-import {
-  ROLE_THEME,
-  SURFACE_DEFAULTS,
-  SURFACE_GROUPS,
-  surfaceSettings,
-} from "../src/gui/surface-settings.js";
+import { surfaceSettings } from "../src/gui/surface-settings.js";
 import {
   barPositions,
   composerPillShows,
@@ -23,9 +18,9 @@ import {
   stripLayout,
   toastView,
 } from "../src/gui/surfaces-model.js";
+import { ROLE_THEME, settingsFromValues } from "../src/settings/display.js";
 import type { ClientSettings } from "../src/settings/index.js";
 import { defaultSettings } from "../src/settings/schema.js";
-import { THEME_COLORS } from "../src/tui/display.js";
 import { wantsResetNotice } from "../src/tui/toasts.js";
 import { listenForTurns, type SessionEvent } from "../src/tui/turn-events.js";
 import { toastInput } from "../src/view/text.js";
@@ -91,18 +86,71 @@ function settingsWith(values: Record<string, unknown>) {
   return { snapshot, settings: surfaceSettings(snapshot) };
 }
 
+describe("shared display settings", () => {
+  it("uses defaults for missing values", () => {
+    const settings = settingsFromValues({});
+    expect(Object.keys(settings)).toEqual([
+      "sidebar",
+      "collapsed",
+      "statusLine",
+      "toast",
+      "colors",
+      "layout",
+      "words",
+    ]);
+    expect(settings.sidebar.show).toBe(true);
+    expect(settings.statusLine.withSidebar).toBe(false);
+    expect(settings.statusLine.withSidePanel).toBe(true);
+    expect(settings.toast.seconds).toBe(9);
+    expect(settings.colors).toMatchObject({ levelBy: "left", warningBelow: 50, lowBelow: 20 });
+    expect(settings.colors.provider).toBeUndefined();
+    expect(settings.layout.separator).toBe(" · ");
+    expect(settings.words.percent).toBe("left");
+  });
+
+  it("lets saved values win over defaults, including false, zero and empty strings", () => {
+    const settings = settingsFromValues({
+      "sidebar.show": false,
+      "sidebar.names": { "openai.week": "Weekly budget" },
+      "statusLine.window": { openai: "week" },
+      "toast.afterReply": "off",
+      "colors.provider": "#123abc",
+      "layout.indent": 0,
+      "layout.separator": "",
+      "words.percent": "used",
+    });
+    expect(settings.sidebar.show).toBe(false);
+    expect(settings.sidebar.names).toEqual({ "openai.week": "Weekly budget" });
+    expect(settings.statusLine.window).toEqual({ openai: "week" });
+    expect(settings.toast.afterReply).toBe("off");
+    expect(settings.colors.provider).toBe("#123abc");
+    expect(settings.layout.indent).toBe(0);
+    expect(settings.layout.separator).toBe("");
+    expect(settings.words.percent).toBe("used");
+  });
+
+  it("maps every color role to its theme color", () => {
+    expect(ROLE_THEME).toEqual({
+      good: "green",
+      warning: "yellow",
+      low: "red",
+      empty: "muted",
+      title: "text",
+      provider: "text",
+      account: "muted",
+      label: "text",
+      percent: "bar",
+      reset: "muted",
+      value: "muted",
+      error: "red",
+      statusName: "muted",
+      separator: "muted",
+      arrows: "accent",
+    });
+  });
+});
+
 describe("GUI surface settings", () => {
-  it("copies the schema's defaults of every group the surfaces read", () => {
-    const defaults = defaultSettings();
-    for (const group of SURFACE_GROUPS) {
-      expect(SURFACE_DEFAULTS[group], group).toEqual(defaults[group]);
-    }
-  });
-
-  it("copies the TUI's theme color of every role", () => {
-    expect(ROLE_THEME).toEqual(THEME_COLORS);
-  });
-
   it("puts the snapshot's values over the defaults, and only into the surface groups", () => {
     const settings = surfaceSettings(
       withValues({
@@ -116,7 +164,7 @@ describe("GUI surface settings", () => {
     expect(settings.statusLine.window).toEqual({ anthropic: "week" });
     expect(settings.toast.seconds).toBe(9);
     expect("providers" in settings).toBe(false);
-    expect(surfaceSettings(undefined)).toEqual(SURFACE_DEFAULTS);
+    expect(surfaceSettings(undefined)).toEqual(settingsFromValues({}));
   });
 });
 

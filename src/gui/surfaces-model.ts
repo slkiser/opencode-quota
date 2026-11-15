@@ -17,7 +17,7 @@
  * theme (`style.ts`), a "#rrggbb" stays fixed, and "bar" takes the row's level color.
  */
 import type { QuotaSnapshot, Words } from "../core/types.js";
-import type { Settings } from "../settings/schema.js";
+import { ROLE_THEME, type SurfaceSettings } from "../settings/display.js";
 import {
   barLevel,
   type Level,
@@ -40,7 +40,6 @@ import {
   type Segment,
   type ToastInput,
 } from "../view/text.js";
-import { ROLE_THEME } from "./surface-settings.js";
 
 export type SurfaceRow = RowFacts & {
   /** The bar's level; undefined for a row without a percent. */
@@ -67,7 +66,7 @@ export type SurfaceGroup = {
 };
 
 /** What a surface's rows take from the settings: their colors, the bar shape, and the words. */
-export type RowSettings = Pick<Settings, "colors" | "layout" | "words">;
+export type RowSettings = Pick<SurfaceSettings, "colors" | "layout" | "words">;
 
 /**
  * Where a row's bar fills to and where its even-use mark sits, in percent of the bar's width:
@@ -99,7 +98,7 @@ const LOW_CACHE_WIDTH = 48;
 
 /** How the always-on surfaces show rows, as `view/text.ts` shows them in the TUI. */
 function alwaysOnPlace(
-  settings: Pick<Settings, "words" | "layout">,
+  settings: Pick<SurfaceSettings, "words" | "layout">,
   nowMs: number,
   percent: Place["percent"],
   pace: Place["pace"],
@@ -115,7 +114,7 @@ function alwaysOnPlace(
   };
 }
 
-function surfaceRow(settings: Pick<Settings, "colors">, facts: RowFacts): SurfaceRow {
+function surfaceRow(settings: Pick<SurfaceSettings, "colors">, facts: RowFacts): SurfaceRow {
   if (facts.percent === undefined) return facts;
   return { ...facts, level: barLevel(settings.colors, facts.percent, facts.paceLevel) };
 }
@@ -137,7 +136,11 @@ function surfaceGroup(groups: Group[], group: Group, nowMs: number): Omit<Surfac
 }
 
 /** The open Quota panel: the sidebar's providers and rows, then the session's tokens. */
-export function panelView(snapshot: QuotaSnapshot, settings: Settings, nowMs: number): PanelView {
+export function panelView(
+  snapshot: QuotaSnapshot,
+  settings: SurfaceSettings,
+  nowMs: number,
+): PanelView {
   const place = alwaysOnPlace(
     settings,
     nowMs,
@@ -183,7 +186,7 @@ export function toastView(input: ToastInput): PanelView {
  */
 export function pickedGroups(
   snapshot: QuotaSnapshot,
-  settings: Settings,
+  settings: SurfaceSettings,
   surface: "collapsed" | "statusLine",
   nowMs: number,
   place: Partial<Pick<Place, "percent" | "pace">> = {},
@@ -220,7 +223,7 @@ export function providerCounts(groups: readonly PickedGroup[]): {
  */
 export function currentModelPick(
   snapshot: QuotaSnapshot,
-  settings: Settings,
+  settings: SurfaceSettings,
   nowMs: number,
 ): PickedGroup | undefined {
   const current = snapshot.currentModelProviderIds;
@@ -255,7 +258,7 @@ export function pickedText(group: PickedGroup, unchecked: string, withName = fal
  * on screen. The TUI's `statusLine.withSidebar` does not apply here.
  */
 export function statusStripShows(
-  settings: Settings,
+  settings: SurfaceSettings,
   where: { home: boolean; panelOnScreen: boolean },
 ): boolean {
   if (where.home) return settings.statusLine.home;
@@ -264,7 +267,7 @@ export function statusStripShows(
 }
 
 /** The pill above the message box shows: the status line is on and `statusLine.composerPill` is. */
-export function composerPillShows(settings: Settings): boolean {
+export function composerPillShows(settings: SurfaceSettings): boolean {
   return settings.statusLine.show && settings.statusLine.composerPill;
 }
 
@@ -335,7 +338,7 @@ export function groupTone(group: PickedGroup): "success" | "warning" | "danger" 
   return group.error !== undefined ? "danger" : levelTone(group.row?.level);
 }
 
-type ColorChoice = NonNullable<Settings["colors"]["good"]>;
+type ColorChoice = NonNullable<SurfaceSettings["colors"]["good"]>;
 type NamedColor = Exclude<(typeof ROLE_THEME)[ColorRole], "bar">;
 
 const HEX = /^#[0-9a-f]{6}$/iu;
@@ -351,13 +354,13 @@ function fixedCss(choice: ColorChoice, fallback: NamedColor): string {
   return namedCss(choice as NamedColor);
 }
 
-function choiceFor(settings: Pick<Settings, "colors">, role: ColorRole): ColorChoice {
+function choiceFor(settings: Pick<SurfaceSettings, "colors">, role: ColorRole): ColorChoice {
   return settings.colors[role] ?? ROLE_THEME[role];
 }
 
 /** The bar color for a percent left, by the row's pace when the bar colors follow pace. */
 export function levelCss(
-  settings: Pick<Settings, "colors">,
+  settings: Pick<SurfaceSettings, "colors">,
   percent: number,
   paceLevel?: Level,
 ): string {
@@ -367,7 +370,7 @@ export function levelCss(
 
 /** A role's color. A role set to "bar" takes the level color of the row's percent. */
 export function roleCss(
-  settings: Pick<Settings, "colors">,
+  settings: Pick<SurfaceSettings, "colors">,
   role: ColorRole,
   percent = 100,
   paceLevel?: Level,
@@ -377,7 +380,7 @@ export function roleCss(
 }
 
 /** The color of one line segment of the bottom strip. */
-export function segmentCss(settings: Settings, segment: Segment): string {
+export function segmentCss(settings: SurfaceSettings, segment: Segment): string {
   return segment.role === "bar"
     ? levelCss(settings, segment.percent ?? 100, segment.paceLevel)
     : roleCss(settings, segment.role, segment.percent, segment.paceLevel);

@@ -21,8 +21,9 @@ import {
   typedNumber,
 } from "../src/gui/settings-model.js";
 import { createSettingsPageState } from "../src/gui/settings-page.js";
-import { settingsFromValues, surfaceSettings } from "../src/gui/surface-settings.js";
+import { surfaceSettings } from "../src/gui/surface-settings.js";
 import type { QuotaRpcSaveSettingsInput, QuotaRpcSettingsOutput } from "../src/rpc.js";
+import { settingsFromValues } from "../src/settings/display.js";
 import {
   checkSetting,
   clientSettings,
