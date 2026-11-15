@@ -246,7 +246,10 @@ export function createQuotaServerPlugin(
             return undefined;
           },
         );
-        const [report, providers] = await Promise.all([usageReport(query), openCodeProviders]);
+        const [report, providers] = await Promise.all([
+          usageReport(query, Date.now(), { directory: locationDirectory }),
+          openCodeProviders,
+        ]);
         return providers ? withProviderNames(report, providers) : report;
       };
 

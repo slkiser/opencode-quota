@@ -5,7 +5,7 @@ const CONFIG_PROVIDER_IDS = Object.keys(QUOTA_PROVIDER_CATALOG).map((id) =>
 );
 
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseJsonc } from "jsonc-parser";
@@ -143,6 +143,71 @@ describe("server quota RPC", () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
     vi.restoreAllMocks();
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true, maxRetries: 3 });
+  });
+
+  it("uses location prices in Usage RPC, chat text and status, including explicit unpriced overrides", async () => {
+    vi.setSystemTime(new Date(2026, 9, 10, 12));
+    const project = await mkdtemp(join(tmpdir(), "opencode-quota-prices-rpc-"));
+    onTestFinished(() => rm(project, { recursive: true, force: true }));
+    // The Location is nested below the Git root; its prices must not use the root instead.
+    const directory = join(project, "nested");
+    await mkdir(join(project, ".git"));
+    await mkdir(directory);
+    const configPath = join(directory, "opencode.jsonc");
+    const setPrice = (cost: unknown) =>
+      writeFile(
+        configPath,
+        JSON.stringify({
+          providers: { "team-gateway": { models: { "demo/model": { cost } } } },
+        }),
+      );
+    await setPrice({ input: 2, output: 6, cache: { read: 0.5, write: 0 } });
+    const databasePath = join(project, "history.db");
+    vi.stubEnv("OPENCODE_DB", databasePath);
+    writeSessionDatabase(databasePath, {
+      sessions: [{ id: "ses_prices", created: Date.now() - 120_000 }],
+      messages: [
+        {
+          id: "msg_prices",
+          sessionID: "ses_prices",
+          created: Date.now() - 60_000,
+          completed: Date.now() - 59_000,
+          providerID: "team-gateway",
+          modelID: "demo/model",
+          cost: 999,
+          tokens: {
+            input: 1_000_000,
+            output: 100_000,
+            reasoning: 50_000,
+            cacheRead: 2_000_000,
+            cacheWrite: 100_000,
+          },
+        },
+      ],
+    });
+    useSettings({ providers: { pricing: { source: "bundled", autoRefreshDays: 7 } } });
+    // The same prices reach the report, Web/Desktop text commands and status diagnostics.
+    const { call, runCommand, ctx } = await setupServer({ directory });
+    const { report } = (await call("usage", { range: "today" })) as { report: UsageReport };
+    expect(report.totals.costUsd).toBeCloseTo(3.9, 9);
+    expect(report.totals.cacheSavingsUsd).toBeCloseTo(3, 9);
+    expect(report.totals.unpricedTokens).toBe(0);
+    expect(report.totals.costByType).toEqual({
+      input: 2,
+      cacheRead: 1,
+      cacheWrite: 0,
+      output: expect.closeTo(0.9, 9),
+    });
+    for (const row of [report.models[0], report.providers[0], report.days[0]])
+      expect(row?.costUsd).toBeCloseTo(3.9, 9);
+    await runCommand("quota_usage", "ses_prices");
+    expect(ctx.session.prompt.mock.calls.at(-1)?.[0].text).toContain("$3.90");
+    expect(((await call("status", {})) as { text: string }).text).toContain("unpriced_30d: 0");
+    // An empty price list is unpriced, not free or an automatic-match fallback.
+    await setPrice([]);
+    const { report: empty } = (await call("usage", { range: "today" })) as { report: UsageReport };
+    expect(empty.totals).toMatchObject({ costUsd: 0, unpricedTokens: 3_250_000 });
+    expect(((await call("status", {})) as { text: string }).text).toContain("unpriced_30d: 100");
   });
 
   it("registers the quota RPC with its ten methods during setup", async () => {

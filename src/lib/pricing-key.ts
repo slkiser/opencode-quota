@@ -18,6 +18,7 @@ import {
   listProvidersForModelId,
   lookupCost,
 } from "./modelsdev-pricing.js";
+import type { ConfiguredUsagePrices, ConfiguredUsageRate } from "./opencode-usage-pricing.js";
 import type { TokenBuckets } from "./token-buckets.js";
 
 type PricedKey = {
@@ -522,19 +523,54 @@ function pricedMessage(key: PricedKey, rates: CostBuckets, tokens: TokenBuckets)
   };
 }
 
+/** Largest strictly exceeded context tier, or the first base rate; equal tiers keep order. */
+function configuredRate(
+  rates: readonly ConfiguredUsageRate[],
+  promptTokens: number,
+): ConfiguredUsageRate | undefined {
+  if (rates.length === 0) return undefined;
+  let rate = rates.find((candidate) => candidate.context === undefined);
+  for (const candidate of rates) {
+    if (
+      candidate.context !== undefined &&
+      promptTokens > candidate.context &&
+      (rate?.context === undefined || candidate.context > rate.context)
+    ) {
+      rate = candidate;
+    }
+  }
+  return rate;
+}
+
 /**
- * What one message of `source` costs. Automatic matching (models.dev, Cursor's own table)
- * wins; `modelMap` (exact source model id → models.dev "provider/model") prices only a model
- * automatic matching cannot.
+ * What one message of `source` costs. Explicit configured prices win for the exact source
+ * ids; a configured model without a usable rate stays unpriced. Otherwise automatic matching
+ * (models.dev, Cursor) wins, with `modelMap` only when automatic matching cannot price it.
  */
 export function priceMessage(
   source: { providerID?: string; modelID?: string },
   tokens: TokenBuckets,
-  options: { modelMap?: Readonly<Record<string, string>> } = {},
+  options: {
+    modelMap?: Readonly<Record<string, string>>;
+    configuredPrices?: ConfiguredUsagePrices;
+  } = {},
 ): MessagePrice {
+  const promptTokens = tokens.input + tokens.cache_read + tokens.cache_write;
+  if (source.providerID !== undefined && source.modelID !== undefined) {
+    const providers = options.configuredPrices?.providers;
+    const models =
+      providers && Object.hasOwn(providers, source.providerID)
+        ? providers[source.providerID]
+        : undefined;
+    if (models && Object.hasOwn(models, source.modelID)) {
+      const rates = models[source.modelID]!;
+      const key = { provider: source.providerID, model: source.modelID };
+      const rate = configuredRate(rates, promptTokens);
+      return rate ? pricedMessage(key, rate, tokens) : { kind: "unpriced", key };
+    }
+  }
   const pricing = cachedModelPricing(source);
   if (pricing.kind === "priced") {
-    const promptTokens = tokens.input + tokens.cache_read + tokens.cache_write;
     if (isCursorSource(source) && !cursorBaseRatesCoverPrompt(source.modelID, promptTokens)) {
       return { kind: "unpriced", key: pricing.key };
     }

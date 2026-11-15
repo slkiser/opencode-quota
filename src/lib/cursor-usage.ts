@@ -89,9 +89,9 @@ export async function getCurrentCursorUsageSummary(params?: {
 
     const sourceModelID = msg.modelID ?? "unknown";
     const tokens = tokenBucketsFromMessage(msg);
-    // Priced as the Usage tab prices it: Cursor's own table is Auto+Composer except its
-    // third-party models, and any other price (Cursor's aliases, else models.dev's normal match)
-    // the API pool.
+    // Automatic matching puts Cursor's own Auto+Composer prices in that pool; third-party
+    // models and other matches use the API pool. Explicit Usage config prices do not
+    // apply to this estimate.
     const price = priceMessage({ providerID: msg.providerID, modelID: msg.modelID }, tokens);
     if (price.kind === "priced") {
       const model = resolveCursorModel(msg.modelID);

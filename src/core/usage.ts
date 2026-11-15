@@ -1,6 +1,6 @@
 /**
- * The usage report: what OpenCode's own message history used and would cost at API list
- * prices, for one range, with every number the usage view shows: totals, cost by token type,
+ * The usage report: what OpenCode's own message history used and would cost at configured
+ * or API list prices, for one range, with every number the view shows: totals, cost by token type,
  * cache savings, the share of tokens without a price, and breakdowns by provider, model and
  * day. Plain JSON, because it travels over the RPC.
  *
@@ -11,9 +11,10 @@
  * - Requests count completed, non-aborted assistant messages with token usage metadata, plus
  *   compactions with recorded usage. Assistant messages without completion or usage metadata are
  *   not requests.
- * - Cost comes from the shared pricing resolver (models.dev snapshot, Cursor's own table). A
- *   model without a price adds tokens but no cost; its tokens are the unpriced share. A failed
- *   compaction names no model, so its tokens are unpriced too (provider and model "unknown").
+ * - Cost prefers explicit prices from the report location's OpenCode config, then the shared
+ *   resolver (models.dev snapshot, Cursor's own table). A model without a usable rate adds
+ *   tokens but no cost; its tokens are the unpriced share. A failed compaction names no model,
+ *   so its tokens are unpriced too (provider and model "unknown").
  * - Sessions count conversations: a subagent session counts as part of its top parent.
  * - "session" reads the session and its subagent sessions, or the session alone with
  *   `subagents: false`. The sidebar's session line (`sessionUsage`) counts with these same rules.
@@ -37,6 +38,11 @@ import {
   readUsageMessagePages,
   resolveSessionTree,
 } from "../lib/opencode-storage.js";
+import {
+  type ConfiguredUsagePrices,
+  EMPTY_CONFIGURED_USAGE_PRICES,
+  loadConfiguredUsagePrices,
+} from "../lib/opencode-usage-pricing.js";
 import { type MessagePrice, priceMessage } from "../lib/pricing-key.js";
 import { type TokenBuckets, tokenBucketsFromMessage } from "../lib/token-buckets.js";
 import type { SessionModelInput, SessionTokens, Words } from "./types.js";
@@ -360,14 +366,21 @@ function isRecent(recent: RecentReport, nowMs: number): boolean {
 
 /**
  * The usage report for `query` at `nowMs`. Identical questions (same database, price list,
- * local day and query) share one read of the history: a request made while the same
- * report is being built waits for it, and a finished report answers again for 30 s, so its
+ * configured prices, local day and query) share one history read. A request made while
+ * the report is being built waits for it; a finished report answers again for 30 s, so its
  * numbers can be up to 30 s old. A failed report is not kept.
+ * `options.directory` selects local OpenCode config prices. Without it, only automatic
+ * matching applies; there is no current-working-directory fallback.
  */
 export async function usageReport(
   query: UsageQuery,
   nowMs: number = Date.now(),
+  options: { directory?: string } = {},
 ): Promise<UsageReport> {
+  const configuredPrices =
+    options.directory === undefined
+      ? EMPTY_CONFIGURED_USAGE_PRICES
+      : await loadConfiguredUsagePrices(options.directory);
   for (const [key, recent] of recentReports) {
     if (!isRecent(recent, nowMs)) recentReports.delete(key);
   }
@@ -380,6 +393,7 @@ export async function usageReport(
   const key = JSON.stringify([
     getOpenCodeDbPath(),
     priceList,
+    configuredPrices.fingerprint,
     today,
     range,
     sessionID,
@@ -390,7 +404,7 @@ export async function usageReport(
   const recent = recentReports.get(key);
   if (recent) return recent.report;
 
-  const report = buildUsageReport(query, nowMs);
+  const report = buildUsageReport(query, nowMs, configuredPrices);
   recentReports.set(key, { startedMs: nowMs, report });
   report.catch(() => {
     if (recentReports.get(key)?.report === report) recentReports.delete(key);
@@ -408,7 +422,11 @@ type ModelTally = {
   days: Map<string, { costUsd: number; tokens: number; priced: boolean }>;
 };
 
-async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<UsageReport> {
+async function buildUsageReport(
+  query: UsageQuery,
+  nowMs: number,
+  configuredPrices: ConfiguredUsagePrices,
+): Promise<UsageReport> {
   const window = resolveWindow(query, nowMs);
   const sessionsIndex = await readAllSessionsIndex();
   const sessionIDs = await sessionsToRead(query);
@@ -449,7 +467,9 @@ async function buildUsageReport(query: UsageQuery, nowMs: number): Promise<Usage
       const buckets = tokenBucketsFromMessage(message);
       const use = messageUse(
         buckets,
-        priceMessage({ providerID: message.providerID, modelID: message.modelID }, buckets),
+        priceMessage({ providerID: message.providerID, modelID: message.modelID }, buckets, {
+          configuredPrices,
+        }),
       );
       const topSession = entryFor(topSessionIDs, message.sessionID, () =>
         topSessionID(message.sessionID, sessionsIndex),
