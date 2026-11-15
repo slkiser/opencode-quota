@@ -108,8 +108,10 @@ let unboundWarningShown = false;
  * again, a credential event arrives, or `notifyCredentialsChanged` runs.
  */
 const credentialFailures = new Map<string, CredentialFailure>();
-/** One `resolve()` at a time per connection id. */
+/** One `resolve()` at a time per connection id in the current credential epoch. */
 const pendingResolves = new Map<string, Promise<ResolveOutcome>>();
+/** Identifies the credential state that owns pending resolves and their failures. */
+let credentialEpoch = 0;
 let lastListError: { at: number; detail: string } | undefined;
 
 /**
@@ -198,9 +200,11 @@ export function bindCredentialSource(source: CredentialSource): () => void {
   };
 }
 
-/** Drops cached logins, failed-login entries and the last `list()` error. */
+/** Starts a credential epoch, dropping cached logins, failures, resolves and the last `list()` error. */
 export function notifyCredentialsChanged(): void {
+  credentialEpoch += 1;
   credentialFailures.clear();
+  pendingResolves.clear();
   rowCache.clear();
   rowCacheGeneration += 1;
   lastListError = undefined;
@@ -311,13 +315,11 @@ async function listedConnectionSlots(
   return { slots, activeConnections };
 }
 
-function recordResolveFailure(
+function resolveFailureOutcome(
   connection: CredentialConnection,
   failure: Omit<CredentialFailure, "at" | "label">,
 ): ResolveOutcome {
-  const recorded: CredentialFailure = { ...failure, at: Date.now(), label: connection.label };
-  credentialFailures.set(connection.id, recorded);
-  return { failure: recorded };
+  return { failure: { ...failure, at: Date.now(), label: connection.label } };
 }
 
 /**
@@ -336,28 +338,40 @@ function resolveCredentialConnection(
   const pending = pendingResolves.get(connection.id);
   if (pending) return pending;
 
+  const epoch = credentialEpoch;
   const outcome = (async (): Promise<ResolveOutcome> => {
     try {
       const value = await integration.connection.resolve(connection);
       if (value === undefined) {
-        return recordResolveFailure(connection, {
+        return resolveFailureOutcome(connection, {
           category: "resolve_empty",
           detail: "OpenCode returned no login",
           integrationId,
         });
       }
-      credentialFailures.delete(connection.id);
       return { value };
     } catch (error) {
-      return recordResolveFailure(connection, {
+      return resolveFailureOutcome(connection, {
         category: "refresh_failed",
         detail: safeErrorText(error),
         integrationId,
       });
     }
-  })().finally(() => {
-    pendingResolves.delete(connection.id);
-  });
+  })()
+    .then((result) => {
+      // Old callers still receive their outcome; only the current epoch may change shared state.
+      if (epoch === credentialEpoch) {
+        if ("failure" in result) {
+          credentialFailures.set(connection.id, result.failure);
+        } else {
+          credentialFailures.delete(connection.id);
+        }
+      }
+      return result;
+    })
+    .finally(() => {
+      if (epoch === credentialEpoch) pendingResolves.delete(connection.id);
+    });
   pendingResolves.set(connection.id, outcome);
   return outcome;
 }
