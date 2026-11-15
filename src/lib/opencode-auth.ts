@@ -110,7 +110,7 @@ let unboundWarningShown = false;
 const credentialFailures = new Map<string, CredentialFailure>();
 /** One `resolve()` at a time per connection id in the current credential epoch. */
 const pendingResolves = new Map<string, Promise<ResolveOutcome>>();
-/** Identifies the credential state that owns pending resolves and their failures. */
+/** Bumped by each credential change; only resolves started in the current epoch store their outcome. */
 let credentialEpoch = 0;
 let lastListError: { at: number; detail: string } | undefined;
 
@@ -324,7 +324,8 @@ function resolveFailureOutcome(
 
 /**
  * Resolves one connection (OpenCode may refresh its token). A login that failed
- * less than a minute ago is not resolved again; concurrent reads share one call.
+ * less than a minute ago is not resolved again; concurrent reads in one credential epoch share
+ * one call.
  */
 function resolveCredentialConnection(
   integration: CredentialIntegration,
