@@ -61,7 +61,7 @@ describe.each(REGIONS)("Kimi Code $region", ({ provider, envVar, integrationId, 
     expect(fetched.error).toBeUndefined();
     // 0.0201 used is 97.99% left, 0.004 used is 99.6% left, both rounded to whole percent.
     expect(rowSummary(fetched.rows)).toEqual([
-      [`${id}.limit.5h`, null, "5 Hour", "five_hour", 98, "2026-11-15T13:37:17.000Z"],
+      [`${id}.five_hour`, null, "5 Hour", "five_hour", 98, "2026-11-15T13:37:17.000Z"],
       [`${id}.weekly`, null, "Weekly", "week", 100, "2026-11-21T08:37:17.000Z"],
     ]);
     // The Code share is inside the monthly pool, so it is a detail and not a row.
@@ -174,7 +174,7 @@ describe("Kimi Code reply parsing", () => {
 
     expect(rowSummary(fetched.rows)).toEqual([
       [
-        "kimi-code-plan-global.limit.5h",
+        "kimi-code-plan-global.five_hour",
         null,
         "5 Hour",
         "five_hour",
@@ -182,14 +182,7 @@ describe("Kimi Code reply parsing", () => {
         "2026-11-15T13:37:17.000Z",
       ],
       ["kimi-code-plan-global.weekly", null, "Weekly", "week", 100, "2026-11-21T08:37:17.000Z"],
-      [
-        "kimi-code-plan-global.limit.monthly_total",
-        null,
-        "Monthly",
-        "month",
-        85,
-        "2026-11-01T00:00:00.000Z",
-      ],
+      ["kimi-code-plan-global.monthly", null, "Monthly", "month", 85, "2026-11-01T00:00:00.000Z"],
     ]);
     // The Code share is inside the monthly pool, so it is a detail and not a row.
     expect(fetched.debug).toContainEqual({ key: "monthly_code_ratio", value: "0.05" });

@@ -3,7 +3,7 @@
  * is queried as its own account; without stored keys, the key the resolver finds is.
  */
 
-import type { DebugDetail, QuotaWindow } from "../core/types.js";
+import type { DebugDetail } from "../core/types.js";
 import { API_KEY_VENDORS, type ApiKeyLoginSpec, readVendorKeys } from "../lib/api-key-resolver.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
@@ -35,10 +35,8 @@ type KimiSpec = {
 
 /** One window of the reply: one of the usage ratios. */
 type KimiWindow = {
-  label: string;
-  /** The row key every other provider stores this window under. */
-  key: string;
-  window: QuotaWindow;
+  /** The shared window this usage key reports: its row key, label and kind. */
+  row: typeof FIVE_HOUR | typeof WEEKLY | typeof MONTHLY;
   percentRemaining: number;
   resetTimeIso?: string;
 };
@@ -105,16 +103,10 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
  * it is no row; its ratio is a debug detail.
  */
 const USAGE_WINDOWS = [
-  // These keys are the ids Kimi shipped with: a row id is stored in users' settings, so a released
-  // key does not change. The window kind is explicit, never read back from the label.
-  { usage: "limit_5h", key: "limit.5h", label: FIVE_HOUR.label, window: FIVE_HOUR.window },
-  { usage: "limit_7d", key: "weekly", label: WEEKLY.label, window: WEEKLY.window },
-  {
-    usage: "limit_month_total",
-    key: "limit.monthly_total",
-    label: MONTHLY.label,
-    window: MONTHLY.window,
-  },
+  // Each usage key reports one shared window, so its row key, label and kind come from there.
+  { usage: "limit_5h", window: FIVE_HOUR },
+  { usage: "limit_7d", window: WEEKLY },
+  { usage: "limit_month_total", window: MONTHLY },
 ] as const;
 
 /** The Code share of the monthly pool, as a debug detail; absent without it. */
@@ -128,15 +120,13 @@ function parseKimiWindows(payload: Record<string, unknown>): KimiWindow[] {
   const usages = asObject(payload.usages);
   if (!usages) return [];
 
-  return USAGE_WINDOWS.flatMap(({ usage, key, label, window }) => {
+  return USAGE_WINDOWS.flatMap(({ usage, window }) => {
     const item = asObject(usages[usage]);
     const usedRatio = getFiniteNumber(item?.used_ratio);
     if (!item || usedRatio === undefined) return [];
     return [
       {
-        key,
-        label,
-        window,
+        row: window,
         percentRemaining: clampPercent(100 - usedRatio * 100),
         resetTimeIso: parseResetTimeIso(item),
       },
@@ -189,9 +179,9 @@ async function queryKimiWindows(
 function kimiRows(windows: readonly KimiWindow[]): ProviderRow[] {
   return windows.map((window) =>
     quotaRow({
-      key: window.key,
-      label: window.label,
-      window: window.window,
+      key: window.row.key,
+      label: window.row.label,
+      window: window.row.window,
       percentRemaining: window.percentRemaining,
       resetsAt: window.resetTimeIso,
     }),

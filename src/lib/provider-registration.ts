@@ -193,7 +193,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     label: "Kimi Code",
     runtimeIds: ["kimi-code-plan-global"],
     synonyms: [],
-    rowKeys: ["weekly", "limit.*"],
+    rowKeys: ["five_hour", "weekly", "monthly"],
     apiKey: {
       displayName: "Kimi",
       envVars: ["KIMI_GLOBAL_API_KEY"],
@@ -207,7 +207,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     runtimeIds: ["kimi-code-plan-cn", "kimi-for-coding", "kimi", "kimi-code"],
     synonyms: ["kimi", "kimi-for-code", "kimi-code", "kimi-for-coding"],
     groupBrands: ["Kimi Code (CN)", "Kimi Code"],
-    rowKeys: ["weekly", "limit.*"],
+    rowKeys: ["five_hour", "weekly", "monthly"],
     // Each region has its own key; the legacy ids (`kimi`, `kimi-code`, ...) belong to CN.
     apiKey: {
       displayName: "Kimi",
