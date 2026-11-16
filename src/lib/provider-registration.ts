@@ -88,6 +88,13 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     },
   },
   {
+    id: "devin",
+    label: "Devin",
+    runtimeIds: ["devin"],
+    synonyms: [],
+    rowKeys: ["daily", "weekly"],
+  },
+  {
     id: "alibaba-coding-plan",
     label: "Alibaba Coding Plan",
     // OpenCode reaches Alibaba's models under the bare ids, so those belong to the Coding Plan.

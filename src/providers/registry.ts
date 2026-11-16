@@ -15,6 +15,7 @@ import { commandCodeProvider } from "./command-code.js";
 import { copilotProvider } from "./copilot.js";
 import { cursorProvider } from "./cursor.js";
 import { deepseekProvider } from "./deepseek.js";
+import { devinProvider } from "./devin.js";
 import { zaiProvider, zhipuProvider } from "./glm-coding-plan.js";
 import { googleAgyProvider } from "./google-agy.js";
 import { googleGeminiCliProvider } from "./google-gemini-cli.js";
@@ -40,6 +41,7 @@ const PROVIDERS_BY_ID = {
   openrouter: openRouterProvider,
   cursor: cursorProvider,
   commandcode: commandCodeProvider,
+  devin: devinProvider,
   "alibaba-coding-plan": alibabaCodingPlanProvider,
   "alibaba-token-plan": alibabaTokenPlanProvider,
   "google-gemini-cli": googleGeminiCliProvider,

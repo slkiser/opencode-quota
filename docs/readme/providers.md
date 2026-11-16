@@ -22,6 +22,7 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the l
 | Claude API         | [Needs setup](#claude-api)              | Dashboard API      | Balance            |
 | Command Code       | Automatic                              | Remote API         | Quota              |
 | Cursor             | [Needs setup](#cursor)                 | Local estimate     | Budget and spend   |
+| Devin              | [Needs setup](#devin)                  | Remote API         | Quota              |
 | GitHub Copilot     | Automatic                              | Remote API         | Budget and usage   |
 | Google AGY         | [Needs setup](#google-agy-quick-setup) | Remote API         | Quota              |
 | Ollama Cloud       | Automatic                              | Remote API         | Quota and balance  |
@@ -42,6 +43,7 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the l
 | Claude API              | [Needs setup](#claude-api)              | Dashboard API      | Balance            |
 | Command Code            | Automatic                              | Remote API         | Quota              |
 | Cursor                  | [Needs setup](#cursor)                 | Local estimate     | Budget and spend   |
+| Devin                   | [Needs setup](#devin)                  | Remote API         | Quota              |
 | Gemini CLI              | [Needs setup](#gemini-cli)             | Remote API         | Quota              |
 | GitHub Copilot          | [Needs setup](#github-copilot)         | Remote API         | Budget and usage   |
 | Google AGY              | [Needs setup](#google-agy-quick-setup) | Remote API         | Quota              |
@@ -475,6 +477,14 @@ Quota checks `google-gemini-cli` when it finds it.
 ### Command Code
 
 Shows the **5h** and **Weekly** quota and reset times. Uses the `commandcode` key saved in OpenCode, or see [API keys](#api-keys). Organization logins read that organization's limits.
+
+<a id="devin"></a>
+
+### Devin
+
+OpenCode has no Devin login of its own, so this needs an OpenCode plugin that adds one (for example `opencode-devin`): install it, run `/connect`, choose **Devin** and sign in. Self-serve plans show the **Daily** and **Weekly** quota and reset times, as Devin Desktop's usage meter does; Devin Max has no daily quota, so it shows **Weekly** only. An account connected more than once shows once.
+
+Devin documents no quota API. OpenCode Quota asks the endpoint Devin's own apps use, so a change on Devin's side can stop these rows until the plugin is updated.
 
 <a id="deepseek"></a>
 

@@ -23,6 +23,7 @@ const PROVIDER_FILES: Readonly<Record<string, readonly string[]>> = {
   "copilot.ts": ["copilot"],
   "cursor.ts": ["cursor"],
   "deepseek.ts": ["deepseek"],
+  "devin.ts": ["devin"],
   "glm-coding-plan.ts": ["zai", "zhipu"],
   "google-agy.ts": ["google-agy"],
   "google-gemini-cli.ts": ["google-gemini-cli"],
