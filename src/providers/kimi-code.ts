@@ -4,6 +4,7 @@
  * finds is.
  */
 
+import type { QuotaWindow } from "../core/types.js";
 import { classifyWindow } from "../core/windows.js";
 import { API_KEY_VENDORS, type ApiKeyLoginSpec, readVendorKeys } from "../lib/api-key-resolver.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "../lib/display-sanitize.js";
@@ -36,6 +37,10 @@ type KimiSpec = {
 /** One window of the reply: the weekly usage, one of the limits or one of the usage ratios. */
 type KimiWindow = {
   label: string;
+  /** The row key to use, when the window's own name is not its key. */
+  rowKey?: string;
+  /** The window the row belongs to, when its name does not name one. */
+  window?: QuotaWindow;
   used?: number;
   limit?: number;
   percentRemaining: number;
@@ -157,10 +162,34 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+/**
+ * The label of a `usages` entry: a known one, or the key's words with "limit" after them.
+ *
+ * The names are short enough to fit the sidebar's name column (eight letters), so neither of the
+ * monthly caps is cut off, and the two of them differ in their first word, so they stay apart
+ * when they share a window.
+ */
 const USAGE_LABELS: Readonly<Record<string, string>> = {
   limit_5h: "5h limit",
-  limit_month_total: "Monthly total limit",
-  limit_month_code: "Monthly code limit",
+  limit_month_total: "Total cap",
+  limit_month_code: "Code cap",
+};
+
+/**
+ * The row key each known `usages` entry keeps. A row's key is part of its id, which users' hide,
+ * rename and order settings name, so a shorter label must not change it.
+ */
+const USAGE_ROW_KEYS: Readonly<Record<string, string>> = {
+  limit_5h: "5h",
+  limit_month_total: "monthly_total",
+  limit_month_code: "monthly_code",
+};
+
+/** The window each known `usages` entry belongs to, which its short name no longer says. */
+const USAGE_WINDOWS: Readonly<Record<string, QuotaWindow>> = {
+  limit_5h: "five_hour",
+  limit_month_total: "month",
+  limit_month_code: "month",
 };
 
 /** The label of a `usages` entry: a known one, or the key's words with "limit" after them. */
@@ -238,6 +267,8 @@ function parseKimiWindows(payload: Record<string, unknown>): KimiWindow[] {
       if (usedRatio === undefined) continue;
       windows.push({
         label,
+        rowKey: USAGE_ROW_KEYS[key] ?? keySlug(key.replace(/^limit_/u, "")),
+        ...(USAGE_WINDOWS[key] ? { window: USAGE_WINDOWS[key] } : {}),
         percentRemaining: clampPercent(100 - usedRatio * 100),
         resetTimeIso: parseResetTimeIso(itemMap),
       });
@@ -290,10 +321,10 @@ async function queryKimiWindows(
 function kimiRows(windows: readonly KimiWindow[]): ProviderRow[] {
   return windows.flatMap((window) => {
     const name = window.label.replace(/:+$/u, "").trim();
-    const kind = classifyWindow(name);
+    const kind = window.window ?? classifyWindow(name);
     const values = { percentRemaining: window.percentRemaining, resetsAt: window.resetTimeIso };
     if (kind === "week") return [quotaRow({ key: "weekly", label: name, window: kind, ...values })];
-    const limit = keySlug(name.replace(/\s+limit$/iu, "")) || keySlug(name);
+    const limit = window.rowKey || keySlug(name.replace(/\s+limit$/iu, "")) || keySlug(name);
     return limit ? [quotaRow({ key: `limit.${limit}`, label: name, window: kind, ...values })] : [];
   });
 }

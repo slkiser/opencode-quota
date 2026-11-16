@@ -70,22 +70,8 @@ describe.each(REGIONS)("Kimi Code $region", ({ provider, envVar, integrationId, 
     expect(rowSummary(fetched.rows)).toEqual([
       [`${id}.weekly`, null, "Weekly limit", "week", 55, "2026-10-16T15:36:21.718Z"],
       [`${id}.limit.5h`, null, "5h limit", "five_hour", 78, "2026-10-10T16:36:21.000Z"],
-      [
-        `${id}.limit.monthly_total`,
-        null,
-        "Monthly total limit",
-        "month",
-        85,
-        "2026-11-01T00:00:00.000Z",
-      ],
-      [
-        `${id}.limit.monthly_code`,
-        null,
-        "Monthly code limit",
-        "month",
-        95,
-        "2026-11-01T00:00:00.000Z",
-      ],
+      [`${id}.limit.monthly_total`, null, "Total cap", "month", 85, "2026-11-01T00:00:00.000Z"],
+      [`${id}.limit.monthly_code`, null, "Code cap", "month", 95, "2026-11-01T00:00:00.000Z"],
     ]);
   });
 
@@ -255,12 +241,12 @@ describe("Kimi Code reply parsing", () => {
         [
           "kimi-code-plan-global.limit.monthly_total",
           null,
-          "Monthly total limit",
+          "Total cap",
           "month",
           85,
           "2026-11-01T00:00:00.000Z",
         ],
-        ["kimi-code-plan-global.limit.monthly_code", null, "Monthly code limit", "month", 95, null],
+        ["kimi-code-plan-global.limit.monthly_code", null, "Code cap", "month", 95, null],
       ],
     },
     {
