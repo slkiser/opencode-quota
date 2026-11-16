@@ -7,6 +7,7 @@ import type { ProviderSnapshot, QuotaRow, QuotaSnapshot } from "../../core/types
 import type { SurfaceSettings } from "../../settings/display.js";
 import { afterPercent, errorWords, type Place, rowFacts } from "../../view/row-facts.js";
 import {
+  distinctRowLabels,
   type Group,
   ordered,
   pickRow,
@@ -170,8 +171,11 @@ export function surfaceEditor(surface: Surface, snapshot?: QuotaSnapshot) {
           muted: off(providerId),
         };
         if (!withRows) return [providerLine];
-        const rowLines = rows.map((row): TreeLine => {
-          const item = visibleRow(row, names);
+        // This page lists a provider's rows without their accounts, so two accounts of one
+        // provider would read the same ("Monthly", "5 Hour"); the account is named only on those.
+        const items = distinctRowLabels(rows, names);
+        const rowLines = rows.map((row, index): TreeLine => {
+          const item = items[index] ?? visibleRow(row, names);
           return {
             id: row.id,
             providerId,
