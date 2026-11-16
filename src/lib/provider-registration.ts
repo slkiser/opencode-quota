@@ -228,6 +228,18 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     },
   },
   {
+    id: "mistral",
+    label: "Mistral AI",
+    runtimeIds: ["mistral"],
+    synonyms: ["mistralai"],
+    rowKeys: ["vibe_budget", "api_budget"],
+    apiKey: {
+      envVars: ["MISTRAL_API_KEY"],
+      providerKeys: ["mistral"],
+      skipBrokenLogins: true,
+    },
+  },
+  {
     id: "xai",
     label: "xAI",
     runtimeIds: ["xai"],
