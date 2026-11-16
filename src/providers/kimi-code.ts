@@ -171,8 +171,8 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
  */
 const USAGE_LABELS: Readonly<Record<string, string>> = {
   limit_5h: "5h limit",
-  limit_month_total: "Total cap",
-  limit_month_code: "Code cap",
+  limit_month_total: "Total",
+  limit_month_code: "Code",
 };
 
 /**
