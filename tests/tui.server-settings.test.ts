@@ -21,7 +21,7 @@ import {
 import { SidebarPanel } from "../src/tui/sidebar.tsx";
 import { DEFAULT_WORDS } from "../src/view/format.js";
 import { stubJsx } from "./helpers/fake-tui-host.js";
-import { textLines, THEME } from "./helpers/jsx-tree.js";
+import { findAll, textLines, THEME } from "./helpers/jsx-tree.js";
 
 const field = (path: string) => FIELDS.find((item) => item.path === path) as Field;
 
@@ -574,10 +574,29 @@ describe("the server settings this window edits", () => {
         textLines(SidebarPanel({ host, sessionID: "ses_1", open: () => true, setOpen: () => {} }))
           .map((line) => line.replace(/\s+/gu, " ").trim())
           .join(" | ");
-      const LEFT = "▼ Quota left | Copilot | 7d ████████████████░░░░ 80%";
-      const USED = "▼ Quota used | Copilot | 7d ████░░░░░░░░░░░░░░░░ 20%";
+      const divider = "─".repeat(35);
+      const LEFT = `▼ Quota left | ${divider} | Copilot | 7d ████████████████░░░░ 80%`;
+      const USED = `▼ Quota used | ${divider} | Copilot | 7d ████░░░░░░░░░░░░░░░░ 20%`;
 
       expect(sidebar()).toBe(LEFT);
+      expect(
+        findAll(
+          SidebarPanel({ host, sessionID: "ses_1", open: () => true, setOpen: () => {} }),
+          (node) => node.type === "box" && node.props.height === 1,
+        ),
+      ).toHaveLength(0);
+      const dividers = (isOpen: boolean) =>
+        findAll(
+          SidebarPanel({
+            host,
+            sessionID: "ses_1",
+            open: () => isOpen,
+            setOpen: () => {},
+          }),
+          (node) => node.type === "text" && node.props.fg === "border",
+        ).map((node) => textLines(node)[0]);
+      expect(dividers(true)).toEqual([divider]);
+      expect(dividers(false)).toEqual([]);
       server.set("words.percent", "used");
       expect(sidebar()).toBe(USED);
       await server.save();
