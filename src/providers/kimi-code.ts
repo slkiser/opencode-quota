@@ -1,26 +1,26 @@
 /**
- * Kimi Code quota (global and China endpoints): the weekly usage and each named limit. Each key
- * stored in OpenCode is queried as its own account; without stored keys, the key the resolver
- * finds is.
+ * Kimi Code quota (global and China endpoints): the three usage ratios. Each key stored in OpenCode
+ * is queried as its own account; without stored keys, the key the resolver finds is.
  */
 
-import { classifyWindow } from "../core/windows.js";
+import type { DebugDetail, QuotaWindow } from "../core/types.js";
 import { API_KEY_VENDORS, type ApiKeyLoginSpec, readVendorKeys } from "../lib/api-key-resolver.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
 import { clampPercent } from "../lib/format-utils.js";
 import { errorWords, failureFacts, requestJson } from "../lib/http.js";
-import { nonEmptyString } from "../lib/json-guards.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import type { QuotaError } from "../lib/types.js";
 import { vendorKeysPolicy } from "./cache-policies.js";
 import {
   failedAccount,
   fetchError,
-  keySlug,
+  FIVE_HOUR,
+  MONTHLY,
   type ProviderFetchResult,
   type ProviderRow,
   quotaRow,
+  WEEKLY,
 } from "./contract.js";
 import { fetchStoredKeys, isKeyVendorAvailable } from "./key-vendor.js";
 import { statusDetailsFromRecord, vendorKeyDetails } from "./result-helpers.js";
@@ -33,16 +33,17 @@ type KimiSpec = {
   auth: ApiKeyLoginSpec;
 };
 
-/** One window of the reply: the weekly usage, one of the limits or one of the usage ratios. */
+/** One window of the reply: one of the usage ratios. */
 type KimiWindow = {
   label: string;
-  used?: number;
-  limit?: number;
+  /** The row key every other provider stores this window under. */
+  key: string;
+  window: QuotaWindow;
   percentRemaining: number;
   resetTimeIso?: string;
 };
 
-type KimiReply = { success: true; windows: KimiWindow[] } | QuotaError;
+type KimiReply = { success: true; windows: KimiWindow[]; monthlyCodeRatio?: string } | QuotaError;
 
 const USER_AGENT = "OpenCode-Quota-Toast/1.0";
 
@@ -89,162 +90,58 @@ function parseResetTimeIso(data: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-function buildLimitLabel(
-  item: Record<string, unknown>,
-  detail: Record<string, unknown>,
-  window: Record<string, unknown>,
-  index: number,
-): string {
-  for (const key of ["name", "title", "scope"]) {
-    const val = nonEmptyString(item[key] ?? detail[key]);
-    if (val) return val;
-  }
-
-  const duration = getFiniteNumber(window.duration ?? item.duration ?? detail.duration);
-  const timeUnit = String(window.timeUnit ?? item.timeUnit ?? detail.timeUnit ?? "");
-
-  if (duration !== undefined && duration > 0) {
-    if (timeUnit.includes("MINUTE")) {
-      if (duration >= 60 && duration % 60 === 0) {
-        return `${duration / 60}h limit`;
-      }
-      return `${duration}m limit`;
-    }
-    if (timeUnit.includes("HOUR")) {
-      return `${duration}h limit`;
-    }
-    if (timeUnit.includes("DAY")) {
-      return `${duration}d limit`;
-    }
-    return `${duration}s limit`;
-  }
-
-  return `Limit #${index + 1}`;
-}
-
-function toUsageWindow(data: Record<string, unknown>, defaultLabel: string): KimiWindow | null {
-  const limit = getFiniteNumber(data.limit);
-  let used = getFiniteNumber(data.used);
-
-  if (used === undefined) {
-    const remaining = getFiniteNumber(data.remaining);
-    if (remaining !== undefined && limit !== undefined) {
-      used = limit - remaining;
-    }
-  }
-
-  if (used === undefined && limit === undefined) {
-    return null;
-  }
-
-  const safeUsed = used ?? 0;
-  const safeLimit = limit ?? 0;
-  const percentRemaining =
-    safeLimit > 0 ? clampPercent(((safeLimit - safeUsed) / safeLimit) * 100) : 0;
-
-  return {
-    label: nonEmptyString(data.name ?? data.title) ?? defaultLabel,
-    used: safeUsed,
-    limit: safeLimit,
-    percentRemaining,
-    resetTimeIso: parseResetTimeIso(data),
-  };
-}
-
 function asObject(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object"
     ? (value as Record<string, unknown>)
     : undefined;
 }
 
-const USAGE_LABELS: Readonly<Record<string, string>> = {
-  limit_5h: "5h limit",
-  limit_month_total: "Monthly total limit",
-  limit_month_code: "Monthly code limit",
-};
-
-/** The label of a `usages` entry: a known one, or the key's words with "limit" after them. */
-function usageLabel(key: string): string {
-  const known = USAGE_LABELS[key];
-  if (known) return known;
-  const words = key
-    .replace(/^limit_/u, "")
-    .replace(/[_-]+/gu, " ")
-    .trim();
-  return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)} limit` : key;
-}
-
-/** Match ratios by duration or API key, independently of the displayed limit name. */
-function limitUsageKey(
-  item: Record<string, unknown>,
-  detail: Record<string, unknown>,
-  window: Record<string, unknown>,
-  label: string,
-): string | undefined {
-  const duration = getFiniteNumber(window.duration ?? item.duration ?? detail.duration);
-  const timeUnit = String(window.timeUnit ?? item.timeUnit ?? detail.timeUnit ?? "");
-  const secondsPerUnit = timeUnit.includes("MINUTE")
-    ? 60
-    : timeUnit.includes("HOUR")
-      ? 3600
-      : timeUnit.includes("DAY")
-        ? 86400
-        : 1;
-  if (duration !== undefined && duration * secondsPerUnit === 18000) {
-    return "limit_5h";
-  }
-  if (duration === undefined && classifyWindow(label) === "five_hour") {
-    return "limit_5h";
-  }
-  return nonEmptyString(item.key ?? detail.key);
-}
-
 /**
- * The weekly `usage` row, one row per `limits` item, then the `usages` ratios the limits do not
- * already report (each may sit under `data`). `used_ratio` is a fraction, so 0.15 means 15% used.
+ * The windows the reply reports, in display order, exactly the keys the first-party CLI reads:
+ * `usage` and `limits` carry the same numbers rounded to whole units. `used_ratio` is a fraction,
+ * so 0.15 means 15% used.
+ *
+ * `limit_month_code` is the Code share inside the monthly pool, not an allowance of its own, so
+ * it is no row; its ratio is a debug detail.
  */
+const USAGE_WINDOWS = [
+  // These keys are the ids Kimi shipped with: a row id is stored in users' settings, so a released
+  // key does not change. The window kind is explicit, never read back from the label.
+  { usage: "limit_5h", key: "limit.5h", label: FIVE_HOUR.label, window: FIVE_HOUR.window },
+  { usage: "limit_7d", key: "weekly", label: WEEKLY.label, window: WEEKLY.window },
+  {
+    usage: "limit_month_total",
+    key: "limit.monthly_total",
+    label: MONTHLY.label,
+    window: MONTHLY.window,
+  },
+] as const;
+
+/** The Code share of the monthly pool, as a debug detail; absent without it. */
+function monthlyCodeRatio(payload: Record<string, unknown>): string | undefined {
+  const item = asObject(asObject(payload.usages)?.limit_month_code);
+  const ratio = getFiniteNumber(item?.used_ratio);
+  return ratio === undefined ? undefined : ratio.toString();
+}
+
 function parseKimiWindows(payload: Record<string, unknown>): KimiWindow[] {
-  const data = asObject(payload.data);
-  const usage = asObject(data?.usage ?? payload.usage);
-  const limits = data?.limits ?? payload.limits;
-  const usages = asObject(data?.usages ?? payload.usages);
-  const windows: KimiWindow[] = [];
-  const reportedKeys = new Set<string>();
+  const usages = asObject(payload.usages);
+  if (!usages) return [];
 
-  const usageWindow = usage ? toUsageWindow(usage, "Weekly limit") : null;
-  if (usageWindow) windows.push(usageWindow);
-
-  if (Array.isArray(limits)) {
-    for (const [index, item] of limits.entries()) {
-      const itemMap = asObject(item);
-      if (!itemMap) continue;
-      const detail = asObject(itemMap.detail) ?? itemMap;
-      const window = asObject(itemMap.window) ?? {};
-      const limitWindow = toUsageWindow(detail, buildLimitLabel(itemMap, detail, window, index));
-      if (!limitWindow) continue;
-      windows.push(limitWindow);
-      const key = limitUsageKey(itemMap, detail, window, limitWindow.label);
-      if (key) reportedKeys.add(key);
-    }
-  }
-
-  if (usages) {
-    for (const [key, item] of Object.entries(usages)) {
-      const itemMap = asObject(item);
-      if (!itemMap) continue;
-      const label = usageLabel(key);
-      if (reportedKeys.has(key)) continue;
-      const usedRatio = getFiniteNumber(itemMap.used_ratio ?? itemMap.usedRatio);
-      if (usedRatio === undefined) continue;
-      windows.push({
+  return USAGE_WINDOWS.flatMap(({ usage, key, label, window }) => {
+    const item = asObject(usages[usage]);
+    const usedRatio = getFiniteNumber(item?.used_ratio);
+    if (!item || usedRatio === undefined) return [];
+    return [
+      {
+        key,
         label,
+        window,
         percentRemaining: clampPercent(100 - usedRatio * 100),
-        resetTimeIso: parseResetTimeIso(itemMap),
-      });
-    }
-  }
-
-  return windows;
+        resetTimeIso: parseResetTimeIso(item),
+      },
+    ];
+  });
 }
 
 async function queryKimiWindows(
@@ -274,7 +171,9 @@ async function queryKimiWindows(
     // Read the keys first: a `null` body must fail with Object.keys' error.
     const topLevelKeys = Object.keys(payload);
     const windows = parseKimiWindows(payload);
-    if (windows.length > 0) return { success: true, windows };
+    const codeRatio = monthlyCodeRatio(payload);
+    if (windows.length > 0)
+      return { success: true, windows, ...(codeRatio ? { monthlyCodeRatio: codeRatio } : {}) };
 
     const keys = topLevelKeys.length ? topLevelKeys.join(", ") : "(empty)";
     return { success: false, error: `Unexpected response structure (keys: ${keys})` };
@@ -286,16 +185,25 @@ async function queryKimiWindows(
   }
 }
 
-/** The weekly window keeps the key `weekly`; every other limit is `limit.<its name>`. */
+/** One row per window, under the key every other provider uses for that window. */
 function kimiRows(windows: readonly KimiWindow[]): ProviderRow[] {
-  return windows.flatMap((window) => {
-    const name = window.label.replace(/:+$/u, "").trim();
-    const kind = classifyWindow(name);
-    const values = { percentRemaining: window.percentRemaining, resetsAt: window.resetTimeIso };
-    if (kind === "week") return [quotaRow({ key: "weekly", label: name, window: kind, ...values })];
-    const limit = keySlug(name.replace(/\s+limit$/iu, "")) || keySlug(name);
-    return limit ? [quotaRow({ key: `limit.${limit}`, label: name, window: kind, ...values })] : [];
-  });
+  return windows.map((window) =>
+    quotaRow({
+      key: window.key,
+      label: window.label,
+      window: window.window,
+      percentRemaining: window.percentRemaining,
+      resetsAt: window.resetTimeIso,
+    }),
+  );
+}
+
+/** The Code share of each login's monthly pool, as debug details for /quota_status. */
+function monthlyCodeDetails(ratios: ReadonlyMap<string, string>): DebugDetail[] {
+  return [...ratios].map(([login, ratio]) => ({
+    key: "monthly_code_ratio",
+    value: login ? `${login}: ${ratio}` : ratio,
+  }));
 }
 
 async function fetchKimiQuota(
@@ -308,20 +216,24 @@ async function fetchKimiQuota(
     ...statusDetailsFromRecord({ api_endpoint: spec.endpoint }),
   ];
   const query = (apiKey: string) => queryKimiWindows(spec, apiKey, ctx.config?.requestTimeoutMs);
+  // The Code share of the monthly pool, per login: it is not a row of its own.
+  const codeRatios = new Map<string, string>();
 
   if (!keys.envOrConfig) {
     const stored = await fetchStoredKeys({
       providerName: spec.label,
       keys,
       brokenFirst: true,
-      async fetchKey(apiKey) {
+      async fetchKey(apiKey, row) {
         const result = await query(apiKey);
+        if (result.success && result.monthlyCodeRatio)
+          codeRatios.set(row.id, result.monthlyCodeRatio);
         return result.success
           ? { rows: kimiRows(result.windows), errors: [] }
           : { rows: [], errors: [fetchError(result.error, result.facts)] };
       },
     });
-    return { ...stored, debug: authDetails };
+    return { ...stored, debug: [...authDetails, ...monthlyCodeDetails(codeRatios)] };
   }
 
   const result = await query(keys.envOrConfig.key);
@@ -332,10 +244,11 @@ async function fetchKimiQuota(
       debug: [...authDetails, { key: "live_fetch_error", value: result.error }],
     };
   }
+  if (result.monthlyCodeRatio) codeRatios.set("", result.monthlyCodeRatio);
   return {
     attempted: true,
     accounts: [{ name: spec.label, rows: kimiRows(result.windows), errors: [] }],
-    debug: authDetails,
+    debug: [...authDetails, ...monthlyCodeDetails(codeRatios)],
   };
 }
 

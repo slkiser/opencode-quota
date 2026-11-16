@@ -13,25 +13,17 @@ import {
 
 const world = useProviderWorld();
 
-/** The weekly usage, one 5-hour limit and the three usage ratios, as the API sends them. */
-const USAGE_REPLY = {
-  usage: { limit: "100", used: "45", remaining: "55", resetTime: "2026-10-16T15:36:21.718434Z" },
-  limits: [
-    {
-      window: { duration: 300, timeUnit: "TIME_UNIT_MINUTE" },
-      detail: { limit: "100", used: "22", remaining: "78", resetTime: "2026-10-10T16:36:21Z" },
-    },
-  ],
+/** The 5-hour and weekly ratios, as the live API sends them (ratios are fractions). */
+const LIVE_REPLY = {
   usages: {
-    limit_5h: { used_ratio: 0.22, reset_time: "2026-10-10T16:36:21Z" },
-    limit_month_total: { used_ratio: 0.15, reset_time: "2026-11-01T00:00:00Z" },
-    limit_month_code: { used_ratio: 0.05, reset_time: "2026-11-01T00:00:00Z" },
+    limit_5h: { used_ratio: 0.0201, reset_time: "2026-11-15T13:37:17Z" },
+    limit_7d: { used_ratio: 0.004, reset_time: "2026-11-21T08:37:17Z" },
   },
 };
 
-/** Only the weekly usage, with `used` of 100 spent. */
-function weeklyReply(used: number) {
-  return { usage: { limit: 100, used } };
+/** Only the weekly ratio, `usedRatio` of the window spent. */
+function weeklyReply(usedRatio: number) {
+  return { usages: { limit_7d: { used_ratio: usedRatio } } };
 }
 
 const REGIONS = [
@@ -56,9 +48,9 @@ const REGIONS = [
 describe.each(REGIONS)("Kimi Code $region", ({ provider, envVar, integrationId, url, name }) => {
   const id = provider.id;
 
-  it("asks its own endpoint with the env key and shows the weekly usage and each limit", async () => {
+  it("asks its own endpoint with the env key and shows the 5h ratio before the weekly one", async () => {
     process.env[envVar] = "env-key";
-    const http = fakeHttp(() => USAGE_REPLY);
+    const http = fakeHttp(() => LIVE_REPLY);
 
     const fetched = await fetchRows(provider);
 
@@ -67,26 +59,12 @@ describe.each(REGIONS)("Kimi Code $region", ({ provider, envVar, integrationId, 
     expect(String(requestUrl)).toBe(url);
     expect(requestHeader(init, "Authorization")).toBe("Bearer env-key");
     expect(fetched.error).toBeUndefined();
+    // 0.0201 used is 97.99% left, 0.004 used is 99.6% left, both rounded to whole percent.
     expect(rowSummary(fetched.rows)).toEqual([
-      [`${id}.weekly`, null, "Weekly limit", "week", 55, "2026-10-16T15:36:21.718Z"],
-      [`${id}.limit.5h`, null, "5h limit", "five_hour", 78, "2026-10-10T16:36:21.000Z"],
-      [
-        `${id}.limit.monthly_total`,
-        null,
-        "Monthly total limit",
-        "month",
-        85,
-        "2026-11-01T00:00:00.000Z",
-      ],
-      [
-        `${id}.limit.monthly_code`,
-        null,
-        "Monthly code limit",
-        "month",
-        95,
-        "2026-11-01T00:00:00.000Z",
-      ],
+      [`${id}.limit.5h`, null, "5 Hour", "five_hour", 98, "2026-11-15T13:37:17.000Z"],
+      [`${id}.weekly`, null, "Weekly", "week", 100, "2026-11-21T08:37:17.000Z"],
     ]);
+    // The Code share is inside the monthly pool, so it is a detail and not a row.
   });
 
   it.each([
@@ -119,14 +97,14 @@ describe.each(REGIONS)("Kimi Code $region", ({ provider, envVar, integrationId, 
     ]);
     fakeHttp((_url, init) =>
       requestHeader(init, "Authorization") === "Bearer work-key"
-        ? weeklyReply(10)
+        ? weeklyReply(0.1)
         : new Response("Unauthorized", { status: 401 }),
     );
 
     const fetched = await fetchRows(provider);
 
     expect(rowSummary(fetched.rows)).toEqual([
-      [`${id}.weekly`, "Work", "Weekly limit", "week", 90, null],
+      [`${id}.weekly`, "Work", "Weekly", "week", 90, null],
     ]);
     expect(fetched.rowLogins).toEqual(["work"]);
     // The broken login comes first, so its error is the one shown.
@@ -135,13 +113,14 @@ describe.each(REGIONS)("Kimi Code $region", ({ provider, envVar, integrationId, 
       { key: "error", value: `[${name} Broken]: Kimi auth entry present but key is empty` },
       { key: "error", value: `[${name} Home]: Kimi API error 401: Unauthorized` },
     ]);
+    // The Code share is inside the monthly pool, so it is a detail and not a row.
   });
 
   it("shows a stored login that is not a key as its one error, without a request", async () => {
     world.storeLogins([
       { id: "oauth", integrationId, active: null, updated: 1, value: { type: "oauth" } },
     ]);
-    const http = fakeHttp(() => weeklyReply(10));
+    const http = fakeHttp(() => weeklyReply(0.1));
     const ctx = {
       config: {},
       locationDirectory: NO_PROJECT_DIRECTORY,
@@ -164,15 +143,13 @@ describe.each(REGIONS)("Kimi Code $region", ({ provider, envVar, integrationId, 
   it("asks only the env key when keys are also stored", async () => {
     process.env[envVar] = "env-key";
     world.storeLogins([keyLogin("work", integrationId, "work-key", { label: "Work" })]);
-    const http = fakeHttp(() => weeklyReply(10));
+    const http = fakeHttp(() => weeklyReply(0.1));
 
     const fetched = await fetchRows(provider);
 
     expect(http).toHaveBeenCalledOnce();
     expect(requestHeader(http.mock.calls[0]?.[1], "Authorization")).toBe("Bearer env-key");
-    expect(rowSummary(fetched.rows)).toEqual([
-      [`${id}.weekly`, null, "Weekly limit", "week", 90, null],
-    ]);
+    expect(rowSummary(fetched.rows)).toEqual([[`${id}.weekly`, null, "Weekly", "week", 90, null]]);
     expect(fetched.rowLogins).toBeUndefined();
   });
 });
@@ -183,21 +160,39 @@ describe("Kimi Code reply parsing", () => {
     vi.useFakeTimers({ now: Date.parse("2026-10-10T12:00:00Z"), toFake: ["Date"] });
   });
 
-  it.each([
-    ["5-hour limit", 300, "TIME_UNIT_MINUTE", "limit_5h"],
-    ["Rate limit 5h", 5, "TIME_UNIT_HOUR", "limit_5h"],
-    ["Burst quota", 18000, "TIME_UNIT_SECOND", "limit_5h"],
-    ["Total quota", 30, "TIME_UNIT_DAY", "limit_month_total"],
-    ["Code quota", 30, "TIME_UNIT_DAY", "limit_month_code"],
-  ])("keeps only the named limit for %s", async (name, duration, timeUnit, key) => {
-    const window = { duration, timeUnit };
-    const limit = { name, key: key.includes("month") ? key : undefined, window };
+  it("shows the monthly pool as one row, and the Code share as a debug detail", async () => {
     fakeHttp(() => ({
-      limits: [{ ...limit, detail: { limit: 100, used: 22 } }],
-      usages: { [key]: { used_ratio: 0.3 } },
+      ...LIVE_REPLY,
+      usages: {
+        ...LIVE_REPLY.usages,
+        limit_month_total: { used_ratio: 0.15, reset_time: "2026-11-01T00:00:00Z" },
+        limit_month_code: { used_ratio: 0.05, reset_time: "2026-11-01T00:00:00Z" },
+      },
     }));
+
     const fetched = await fetchRows(kimiCodePlanGlobalProvider);
-    expect(fetched.rows.map((row) => [row.label, row.percentRemaining])).toEqual([[name, 78]]);
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      [
+        "kimi-code-plan-global.limit.5h",
+        null,
+        "5 Hour",
+        "five_hour",
+        98,
+        "2026-11-15T13:37:17.000Z",
+      ],
+      ["kimi-code-plan-global.weekly", null, "Weekly", "week", 100, "2026-11-21T08:37:17.000Z"],
+      [
+        "kimi-code-plan-global.limit.monthly_total",
+        null,
+        "Monthly",
+        "month",
+        85,
+        "2026-11-01T00:00:00.000Z",
+      ],
+    ]);
+    // The Code share is inside the monthly pool, so it is a detail and not a row.
+    expect(fetched.debug).toContainEqual({ key: "monthly_code_ratio", value: "0.05" });
   });
 
   it.each([
@@ -213,82 +208,31 @@ describe("Kimi Code reply parsing", () => {
     );
   });
 
-  it.each([
-    {
-      name: "used worked out from the limit and what remains",
-      reply: { usage: { limit: "100", remaining: "30" } },
-      rows: [["kimi-code-plan-global.weekly", null, "Weekly limit", "week", 30, null]],
-    },
-    {
-      name: "a reset given in seconds from now",
-      reply: { usage: { limit: 100, used: 50, reset_in: 3600 } },
-      rows: [
-        [
-          "kimi-code-plan-global.weekly",
-          null,
-          "Weekly limit",
-          "week",
-          50,
-          "2026-10-10T13:00:00.000Z",
-        ],
-      ],
-    },
-    {
-      name: "a named limit wrapped in `data`",
-      reply: { data: { limits: [{ name: "Daily limit", limit: 10, used: 10 }] } },
-      rows: [["kimi-code-plan-global.limit.daily", null, "Daily limit", "day", 0, null]],
-    },
-    {
-      name: "the monthly usage ratios wrapped in `data`",
-      reply: {
-        data: {
-          usages: {
-            limit_month_total: {
-              used_ratio: 0.15,
-              reset_time: "2026-11-01T00:00:00Z",
-            },
-            limit_month_code: { used_ratio: 0.05 },
-          },
-        },
-      },
-      rows: [
-        [
-          "kimi-code-plan-global.limit.monthly_total",
-          null,
-          "Monthly total limit",
-          "month",
-          85,
-          "2026-11-01T00:00:00.000Z",
-        ],
-        ["kimi-code-plan-global.limit.monthly_code", null, "Monthly code limit", "month", 95, null],
-      ],
-    },
-    {
-      name: "a 5h usage ratio when the limits array is absent",
-      reply: { usages: { limit_5h: { used_ratio: 0.3 } } },
-      rows: [["kimi-code-plan-global.limit.5h", null, "5h limit", "five_hour", 70, null]],
-    },
-  ])("reads $name", async ({ reply, rows }) => {
-    fakeHttp(() => reply);
+  it("reports the structure error when there is no usage ratio", async () => {
+    fakeHttp(() => ({ usages: {} }));
 
     const fetched = await fetchRows(kimiCodePlanGlobalProvider);
 
-    expect(fetched.error).toBeUndefined();
-    expect(rowSummary(fetched.rows)).toEqual(rows);
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.error?.code).toBe("bad_response");
+    expect(fetched.debug).toContainEqual({
+      key: "error",
+      value: "Kimi Code: Unexpected response structure (keys: usages)",
+    });
   });
 });
 
 describe("Kimi Code regions", () => {
   it("reads a key stored under the legacy `kimi` id for CN only", async () => {
     world.storeLogins([keyLogin("legacy", "kimi", "legacy-key")]);
-    fakeHttp(() => weeklyReply(25));
+    fakeHttp(() => weeklyReply(0.25));
 
     const global = await fetchRows(kimiCodePlanGlobalProvider);
     const cn = await fetchRows(kimiCodePlanCnProvider);
 
     expect(global.error).toEqual({ code: "not_configured" });
     expect(rowSummary(cn.rows)).toEqual([
-      ["kimi-code-plan-cn.weekly", null, "Weekly limit", "week", 75, null],
+      ["kimi-code-plan-cn.weekly", null, "Weekly", "week", 75, null],
     ]);
     expect(cn.rowLogins).toEqual(["legacy"]);
   });

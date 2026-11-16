@@ -197,4 +197,17 @@ describe("/quota_status debug detail rules", () => {
     ];
     for (const shape of Object.keys(KEY_SHAPES)) expect(written).toContain(shape);
   });
+
+  it("shows the Code share of Kimi's monthly pool as a percentage of the pool", () => {
+    const context = { homeDir: "", envNames: [] };
+    const { own } = debugDetailRules("kimi-code-plan-cn");
+
+    // A fraction of 0..1; a login in front of it when a stored one reported the share.
+    expect(own.monthly_code_ratio?.("0.05", context)).toBe("5.0%");
+    expect(own.monthly_code_ratio?.("0", context)).toBe("0%");
+    expect(own.monthly_code_ratio?.("acct_3: 0.2", context)).toBe("acct_3: 20.0%");
+    // Outside the pool it is a broken reply, not a share to round.
+    expect(own.monthly_code_ratio?.("1.5", context)).toBeUndefined();
+    expect(own.monthly_code_ratio?.("junk", context)).toBeUndefined();
+  });
 });
