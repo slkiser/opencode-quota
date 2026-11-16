@@ -574,8 +574,9 @@ describe("the server settings this window edits", () => {
         textLines(SidebarPanel({ host, sessionID: "ses_1", open: () => true, setOpen: () => {} }))
           .map((line) => line.replace(/\s+/gu, " ").trim())
           .join(" | ");
-      const LEFT = "▼ Quota left | Copilot | 7d ████████████████░░░░ 80%";
-      const USED = "▼ Quota used | Copilot | 7d ████░░░░░░░░░░░░░░░░ 20%";
+      const divider = "─".repeat(35);
+      const LEFT = `▼ Quota left | ${divider} | Copilot | 7d ████████████████░░░░ 80%`;
+      const USED = `▼ Quota used | ${divider} | Copilot | 7d ████░░░░░░░░░░░░░░░░ 20%`;
 
       expect(sidebar()).toBe(LEFT);
       const gap = (open: boolean, quota = host.quota) =>
@@ -591,6 +592,18 @@ describe("the server settings this window edits", () => {
       expect(gap(true)).toHaveLength(1);
       expect(gap(false)).toHaveLength(0);
       expect(gap(true, { ...host.quota, snapshot: () => undefined })).toHaveLength(0);
+      const dividers = (isOpen: boolean) =>
+        findAll(
+          SidebarPanel({
+            host,
+            sessionID: "ses_1",
+            open: () => isOpen,
+            setOpen: () => {},
+          }),
+          (node) => node.type === "text" && node.props.fg === "border",
+        ).map((node) => textLines(node)[0]);
+      expect(dividers(true)).toEqual([divider]);
+      expect(dividers(false)).toEqual([]);
       server.set("words.percent", "used");
       expect(sidebar()).toBe(USED);
       await server.save();

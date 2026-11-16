@@ -19,6 +19,7 @@ export type Theme = {
   };
   /** Behind the line the Settings tabs have selected, on a surface. */
   background: { raised: { high: RGBA } };
+  border: { base: RGBA };
   hue: { accent: Record<number, RGBA> };
 };
 

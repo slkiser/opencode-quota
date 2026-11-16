@@ -119,6 +119,11 @@ export function SidebarPanel(props: {
         >
           <b>{panel().title}</b>
         </text>
+        <Show when={open()}>
+          <text fg={host.theme().border.base} wrapMode="none" selectable={false}>
+            {"─".repeat(Math.max(1, width() - 1))}
+          </text>
+        </Show>
         <Show when={open() && panel().lines.length > 0}>
           <box height={1} />
         </Show>
