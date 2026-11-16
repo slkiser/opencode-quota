@@ -527,11 +527,14 @@ const TOKEN_PLAN_COMMANDS: readonly AlibabaCommand[] = [
       const keys = seatKeys(result.seats);
       return {
         ok: true,
-        accounts: result.seats.map((seat, index) => ({
-          name: withSuffix(TOKEN_PLAN_LABEL, seat.name),
-          rows: [seatRow(seat, keys[index] ?? "seat")],
-          errors: [],
-        })),
+        accounts: result.seats.map((seat, index) => {
+          const key = keys[index] ?? "seat";
+          return {
+            name: withSuffix(TOKEN_PLAN_LABEL, `team ${seat.name || key}`),
+            rows: [seatRow(seat, key)],
+            errors: [],
+          };
+        }),
         debug: result.seats.length > 0 ? [{ key: "seat_windows", value: "credits" }] : [],
       };
     },
