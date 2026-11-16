@@ -3,6 +3,7 @@
  */
 
 import type { DebugDetail } from "../core/types.js";
+import { WINDOWS } from "../core/windows.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
 import {
   type OpenAILogin,
@@ -113,7 +114,11 @@ function activeLoginStatusDetails(logins: readonly OpenAILogin[]): DebugDetail[]
   });
 }
 
-const CODE_REVIEW = { key: "code_review", label: "Code review", window: "code_review" } as const;
+const CODE_REVIEW = {
+  key: "code_review",
+  label: WINDOWS.code_review.label,
+  window: "code_review",
+} as const;
 
 function quotaWindowRows(result: Extract<OpenAIResult, { success: true }>): ProviderRow[] {
   const rows = windowRows([

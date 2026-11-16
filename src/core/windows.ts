@@ -19,7 +19,7 @@ type WindowInfo = {
 export const WINDOWS: Readonly<Record<QuotaWindow, WindowInfo>> = {
   rpm: { label: "Per minute", short: "1m", lengthMs: 60_000, resets: false },
   hour: { label: "Hourly", short: "1h", lengthMs: HOUR_MS, resets: true },
-  five_hour: { label: "5h", short: "5h", lengthMs: 5 * HOUR_MS, resets: true },
+  five_hour: { label: "5 Hour", short: "5h", lengthMs: 5 * HOUR_MS, resets: true },
   session: { label: "Session", short: "Sess", resets: false },
   day: { label: "Daily", short: "1d", lengthMs: DAY_MS, resets: true },
   week: { label: "Weekly", short: "7d", lengthMs: 7 * DAY_MS, resets: true },

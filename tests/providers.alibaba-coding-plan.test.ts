@@ -61,7 +61,7 @@ const USAGE_ROWS = [
   [
     "alibaba-coding-plan.five_hour",
     null,
-    "5h",
+    "5 Hour",
     "five_hour",
     "62 (38 request of 100 request)",
     FIVE_HOUR_RESET,

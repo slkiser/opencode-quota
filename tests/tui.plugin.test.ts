@@ -97,7 +97,12 @@ function claudeAfterReset(): ProviderSnapshot {
   const row = claude.rows[0]!;
   // The weekly row is the "work" account's; the 5h row has no account.
   const weekly = { ...row, account: "work" };
-  const fiveHour = { ...row, id: "claude.five_hour", label: "5h", window: "five_hour" as const };
+  const fiveHour = {
+    ...row,
+    id: "claude.five_hour",
+    label: "5 Hour",
+    window: "five_hour" as const,
+  };
   return { ...claude, rows: [weekly, fiveHour] };
 }
 
@@ -280,7 +285,7 @@ describe("quota toasts", () => {
       expected: [
         [
           "Weekly quota reset: Claude (work) Weekly is available again (100% left).",
-          "5h quota reset: Claude 5h is available again (97% left).",
+          "5 Hour quota reset: Claude 5 Hour is available again (97% left).",
         ].join("\n"),
       ],
     },
@@ -338,7 +343,7 @@ describe("quota toasts", () => {
     });
     toasts.showResetNotices(snapshot([claudeAfterReset()], [notice]));
     expect(show.mock.calls.map(([toast]) => toast.message)).toEqual([
-      `5h quota reset: Claude Burst is available again ${words}.`,
+      `5 Hour quota reset: Claude Burst is available again ${words}.`,
     ]);
   });
 

@@ -90,7 +90,7 @@ const TEAM_LEAD = seatJson("team-lead", TEAM_LEAD_EQUITY);
 const TEAM_LEAD_ROW = [
   "alibaba-token-plan.team.team_lead",
   "team-lead",
-  "Credits",
+  "Monthly",
   "month",
   "68 (80000 credit of 250000 credit)",
   SEAT_RESET,
@@ -213,7 +213,7 @@ describe("alibaba-token-plan provider", () => {
         }),
       },
       [
-        ["alibaba-token-plan.personal.five_hour", "personal", "5h", "five_hour", 75, null],
+        ["alibaba-token-plan.personal.five_hour", "personal", "5 Hour", "five_hour", 75, null],
         ["alibaba-token-plan.personal.weekly", "personal", "Weekly", "week", 90, null],
         ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET],
       ],
@@ -233,7 +233,7 @@ describe("alibaba-token-plan provider", () => {
           hasQuotaData: true,
         }),
       },
-      [["alibaba-token-plan.personal.five_hour", "personal", "5h", "five_hour", 75, null]],
+      [["alibaba-token-plan.personal.five_hour", "personal", "5 Hour", "five_hour", 75, null]],
       undefined,
       [
         { key: "cli_available", value: "true" },
@@ -587,7 +587,7 @@ describe("alibaba-token-plan provider", () => {
       [
         "alibaba-token-plan.team.zero",
         "zero",
-        "Credits",
+        "Monthly",
         "month",
         "0 credit (0 credit of 0 credit)",
         null,

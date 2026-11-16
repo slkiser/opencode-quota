@@ -175,7 +175,7 @@ describe("openai provider", () => {
       fetched.rows.map((row) => [row.id, row.account, row.label, row.window, row.resetsAt]),
     ).toEqual(
       ["Work (Business)", "Work 2 (Business)"].flatMap((account) => [
-        ["openai.five_hour", account, "5h", "five_hour", "2026-01-01T03:00:00.000Z"],
+        ["openai.five_hour", account, "5 Hour", "five_hour", "2026-01-01T03:00:00.000Z"],
         ["openai.weekly", account, "Weekly", "week", "2026-01-07T00:00:00.000Z"],
         ["openai.monthly", account, "Monthly", "month", "2026-02-01T00:00:00.000Z"],
         ["openai.code_review", account, "Code review", "code_review", "2026-01-02T00:00:00.000Z"],
@@ -207,7 +207,7 @@ describe("openai provider", () => {
       methods: ["oauth", "key"],
     });
     expect(tokens()).toEqual(["Bearer home-token"]);
-    expect(summary(fetched.rows)).toEqual([["openai.five_hour", "Home (Pro)", "5h", 42]]);
+    expect(summary(fetched.rows)).toEqual([["openai.five_hour", "Home (Pro)", "5 Hour", 42]]);
     expect(fetched.rowLogins).toEqual(["home-id"]);
     expect(fetched.debug).toEqual(
       expect.arrayContaining([

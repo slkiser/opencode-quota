@@ -190,7 +190,7 @@ describe("copilot provider", () => {
         [
           "copilot.allowance",
           "personal",
-          "Credits",
+          "Monthly",
           "usage",
           "provider_reported",
           "Used 100 | Included 80 | Billed 20 ($0.20)",
@@ -207,7 +207,7 @@ describe("copilot provider", () => {
         [
           "copilot.allowance",
           "enterprise",
-          "Premium interactions",
+          "Monthly",
           "quota",
           "locally_derived",
           40,
@@ -237,7 +237,7 @@ describe("copilot provider", () => {
         [
           "copilot.allowance",
           "business",
-          "Credits",
+          "Monthly",
           "quota",
           "provider_reported",
           0,
@@ -270,7 +270,7 @@ describe("copilot provider", () => {
         [
           "copilot.allowance",
           "pro+",
-          "Premium requests",
+          "Monthly",
           "quota",
           "locally_derived",
           90,
@@ -288,7 +288,7 @@ describe("copilot provider", () => {
         [
           "copilot.allowance",
           "pro",
-          "Premium interactions",
+          "Monthly",
           "quota",
           "provider_reported",
           "Unlimited",
@@ -333,7 +333,7 @@ describe("copilot provider", () => {
         [
           "copilot.allowance",
           "business",
-          "Credits",
+          "Monthly",
           "usage",
           "provider_reported",
           "Used 100 | Included 80 | Billed 20 ($0.20) | 2026-01 | org=acme | user=alice",
@@ -366,7 +366,7 @@ describe("copilot provider", () => {
         [
           "copilot.allowance",
           "business",
-          "Credits",
+          "Monthly",
           "usage",
           "provider_reported",
           "Used 10 | Included 0 | Billed 10 ($0.10) | 2026-01 | enterprise=octo",

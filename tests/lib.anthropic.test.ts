@@ -1423,7 +1423,7 @@ describe("Anthropic runtime credentials", () => {
       "no weekly limit (Enterprise)",
       noWeeklyLimitUsage,
       [
-        ["five_hour", "5h", 88],
+        ["five_hour", "5 Hour", 88],
         ["extra_usage", "Extra usage", 75],
         ["weekly_fable", "Fable", 98],
       ],

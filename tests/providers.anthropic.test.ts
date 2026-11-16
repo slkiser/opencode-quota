@@ -105,7 +105,7 @@ describe("anthropic provider", () => {
     expect(http.mock.calls[0]?.[0]).toBe(USAGE_URL);
     expect(requestHeader(http.mock.calls[0]?.[1], "Authorization")).toBe("Bearer token-work");
     expect(rowSummary(fetched.rows)).toEqual([
-      ["anthropic.five_hour", "work", "5h", "five_hour", 58, FIVE_HOUR_RESET],
+      ["anthropic.five_hour", "work", "5 Hour", "five_hour", 58, FIVE_HOUR_RESET],
       ["anthropic.weekly", "work", "Weekly", "week", 72, WEEKLY_RESET],
       ["anthropic.extra_usage", "work", "Extra usage", "month", 62, null],
       ["anthropic.weekly_fable", "work", "Fable", "week", 98, WEEKLY_RESET],
@@ -139,7 +139,7 @@ describe("anthropic provider", () => {
     const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: missingClaude() });
 
     expect(rowSummary(fetched.rows)).toEqual([
-      ["anthropic.five_hour", "work", "5h", "five_hour", 88, FIVE_HOUR_RESET],
+      ["anthropic.five_hour", "work", "5 Hour", "five_hour", 88, FIVE_HOUR_RESET],
       ["anthropic.extra_usage", "work", "Extra usage", "month", 75, null],
       ["anthropic.weekly_fable", "work", "Fable", "week", 98, WEEKLY_RESET],
     ]);
@@ -164,7 +164,7 @@ describe("anthropic provider", () => {
     const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: claude.path });
 
     expect(rowSummary(fetched.rows)).toEqual([
-      ["anthropic.five_hour", null, "5h", "five_hour", 43, FIVE_HOUR_RESET],
+      ["anthropic.five_hour", null, "5 Hour", "five_hour", 43, FIVE_HOUR_RESET],
       ["anthropic.weekly", null, "Weekly", "week", 88, WEEKLY_RESET],
     ]);
     expect(fetched.rows.every((row) => row.method === "local_cli")).toBe(true);
@@ -246,7 +246,7 @@ describe("anthropic provider", () => {
       const fetched = await fetchRows(anthropicProvider, { anthropicBinaryPath: missingClaude() });
 
       expect(rowSummary(fetched.rows)).toEqual([
-        ["anthropic.five_hour", "Work", "5h", "five_hour", 80, null],
+        ["anthropic.five_hour", "Work", "5 Hour", "five_hour", 80, null],
         ["anthropic.weekly", "Work", "Weekly", "week", 70, null],
       ]);
       expect(fetched.rowLogins).toEqual(["valid", "valid"]);

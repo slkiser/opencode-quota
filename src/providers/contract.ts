@@ -6,7 +6,7 @@
 
 import type { ErrorFacts } from "../core/errors.js";
 import type { Amount, DebugDetail, QuotaRow, QuotaWindow } from "../core/types.js";
-import { windowRank } from "../core/windows.js";
+import { WINDOWS, windowRank } from "../core/windows.js";
 import { type CredentialRow, formatCredentialDisplayNames } from "../lib/opencode-auth.js";
 
 /** One row as a provider reports it; `key` is the part of the row id after the provider id. */
@@ -43,9 +43,13 @@ export function keySlug(text: string): string {
     .replace(/^_+|_+$/gu, "");
 }
 
-export const FIVE_HOUR = { key: "five_hour", label: "5h", window: "five_hour" } as const;
-export const WEEKLY = { key: "weekly", label: "Weekly", window: "week" } as const;
-export const MONTHLY = { key: "monthly", label: "Monthly", window: "month" } as const;
+export const FIVE_HOUR = {
+  key: "five_hour",
+  label: WINDOWS.five_hour.label,
+  window: "five_hour",
+} as const;
+export const WEEKLY = { key: "weekly", label: WINDOWS.week.label, window: "week" } as const;
+export const MONTHLY = { key: "monthly", label: WINDOWS.month.label, window: "month" } as const;
 
 /** One quota row, the way a provider reports a window: the percent left, the counts when it has
  * them, when it resets and when it started. */

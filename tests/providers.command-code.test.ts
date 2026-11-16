@@ -32,7 +32,7 @@ it.each([undefined, null, { id: "org /?&" }])("reads both rows for account org=%
   const fetched = await fetchRows(provider);
   expect(fetched.error).toBeUndefined();
   expect(rowSummary(fetched.rows)).toEqual([
-    ["commandcode.five_hour", null, "5h", "five_hour", 75, "2026-11-13T18:00:00.000Z"],
+    ["commandcode.five_hour", null, "5 Hour", "five_hour", 75, "2026-11-13T18:00:00.000Z"],
     ["commandcode.weekly", null, "Weekly", "week", 40, "2026-11-20T00:00:00.000Z"],
   ]);
   expect(fetched.rowLogins).toEqual(["command", "command"]);
