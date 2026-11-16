@@ -79,7 +79,7 @@ export function providerContext(
   model?: SessionModel,
 ): QuotaProviderContext {
   const { settings, fromFile } = loaded;
-  const { anthropic, cursor, opencode } = settings.providers;
+  const { anthropic, cursor, openai, opencode } = settings.providers;
   return {
     client: host.client,
     resolveRuntimeProviderIds: createRuntimeProviderIdResolver(host.client),
@@ -91,6 +91,7 @@ export function providerContext(
       cursorIncludedApiUsd: cursor.includedApiUsd ?? undefined,
       cursorBillingCycleStartDay: cursor.billingCycleStartDay ?? undefined,
       opencodeMonthlyLimit: opencode.monthlyLimitUsd ?? undefined,
+      openaiCodexCliSource: openai.codexCliSource,
       requestTimeoutMs: settings.providers.checking.requestTimeoutMs,
       requestTimeoutMsConfigured: fromFile.includes("providers.checking.requestTimeoutMs"),
       enabledProviders: registryProviderIds(registeredProviders(host), settings.providers.off),
@@ -323,6 +324,7 @@ async function readProviderSource(
     config.cursorIncludedApiUsd ?? null,
     config.cursorBillingCycleStartDay ?? null,
     config.opencodeMonthlyLimit ?? null,
+    config.openaiCodexCliSource ?? null,
     config.quotaProviders ?? [],
   ]);
   const availableProviderIds = config.quotaProviders?.length

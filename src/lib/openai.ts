@@ -24,7 +24,7 @@ import {
 } from "./resolved-auth-identity.js";
 import type { QuotaError } from "./types.js";
 
-interface OpenAIUsageResponse {
+export interface OpenAIUsageResponse {
   plan_type: string;
   rate_limit: { primary_window?: unknown; secondary_window?: unknown } | null;
   code_review_rate_limit?: { primary_window?: unknown } | null;
@@ -32,11 +32,13 @@ interface OpenAIUsageResponse {
   credits?: unknown;
 }
 
-interface JwtPayload {
-  "https://api.openai.com/auth"?: { chatgpt_account_id?: string };
+export interface JwtPayload {
+  /** The token's own expiry, in seconds since the epoch. */
+  exp?: number;
+  "https://api.openai.com/auth"?: { chatgpt_account_id?: string; chatgpt_plan_type?: string };
 }
 
-function parseJwtPayload(token: string): JwtPayload | null {
+export function parseJwtPayload(token: string): JwtPayload | null {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   try {
@@ -261,7 +263,7 @@ const OPENAI_ERROR_CODE = /^[A-Za-z0-9_.-]{1,64}$/u;
  * Only OpenAI's short error code, never the free-text body, which can echo
  * account details.
  */
-function openAIErrorCode(body: string): string | undefined {
+export function openAIErrorCode(body: string): string | undefined {
   try {
     const parsed = JSON.parse(body) as { error?: { code?: unknown } } | null;
     const code = parsed?.error?.code;
@@ -271,7 +273,7 @@ function openAIErrorCode(body: string): string | undefined {
   }
 }
 
-function parseUsageResponse(data: OpenAIUsageResponse): OpenAIResult {
+export function parseUsageResponse(data: OpenAIUsageResponse): OpenAIResult {
   const observedAtMs = Date.now();
   const windows: OpenAIWindows = {};
   // Two windows of the same duration that disagree are both dropped instead of guessing.

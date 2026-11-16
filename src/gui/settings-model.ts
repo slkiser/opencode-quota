@@ -44,6 +44,7 @@ export const PROVIDER_KEYS: Readonly<Record<string, readonly string[]>> = {
     "providers.cursor.includedApiUsd",
     "providers.cursor.billingCycleStartDay",
   ],
+  openai: ["providers.openai.codexCliSource"],
   opencode: ["providers.opencode.monthlyLimitUsd"],
 };
 

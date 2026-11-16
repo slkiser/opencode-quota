@@ -348,6 +348,10 @@ export const FIELDS: readonly Field[] = [
     note: "the day of the month your Cursor bill renews",
     placeholder: "a day 1-28",
   }),
+  field("providers.openai.codexCliSource", "Codex CLI quota", SHOW.onOff, {
+    provider: "openai",
+    note: "the ChatGPT quota of the account the Codex CLI is signed in to",
+  }),
   field("providers.opencode.monthlyLimitUsd", "Monthly budget", usd("from the Console"), {
     provider: "opencode",
     note: "a dollar amount to use instead",

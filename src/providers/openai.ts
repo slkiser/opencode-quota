@@ -3,6 +3,7 @@
  */
 
 import type { DebugDetail } from "../core/types.js";
+import { readCodexCliSource, queryCodexCliQuota } from "../lib/codex-cli.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
 import {
   type OpenAILogin,
@@ -16,6 +17,10 @@ import type { CredentialRow } from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderIncludesAny } from "../lib/provider-model-matching.js";
 import { resolveQuotaProviderSessionModelIdentity } from "../lib/quota-providers.js";
+import {
+  composeResolvedAuthIdentities,
+  deriveResolvedAuthIdentity,
+} from "../lib/resolved-auth-identity.js";
 import {
   type AccountResult,
   FIVE_HOUR,
@@ -159,11 +164,78 @@ async function fetchActiveLoginQuota(
   };
 }
 
+/**
+ * The Codex CLI's own sign-in, when the settings ask for it. It is a separate account, named
+ * for its source, so its numbers are never read as the OpenCode login's.
+ */
+const CODEX_CLI_ACCOUNT = "OpenAI (Codex CLI)";
+
+/**
+ * The Codex CLI's quota, when `providers.openai.codexCliSource` is on.
+ *
+ * It is only asked for when OpenCode's own login has no quota number to show, so a login that
+ * already reports one (the legacy Codex sign-ins do) is not answered twice.
+ */
+async function fetchCodexCliQuota(
+  ctx: QuotaProviderContext,
+  accounts: readonly AccountResult[],
+): Promise<{ accounts: AccountResult[]; debug: DebugDetail[] }> {
+  if (!ctx.config?.openaiCodexCliSource) return { accounts: [], debug: [] };
+  const alreadyReported = accounts.some((account) =>
+    account.rows.some((row) => row.type === "quota"),
+  );
+  if (alreadyReported) return { accounts: [], debug: [] };
+
+  const source = await readCodexCliSource();
+  if (source.state !== "ready") {
+    return {
+      accounts: [failedAccount(CODEX_CLI_ACCOUNT, source.error)],
+      debug: [{ key: "codex_cli_source", value: source.state }],
+    };
+  }
+  const result = await queryCodexCliQuota({
+    login: source.login,
+    requestTimeoutMs: ctx.config?.requestTimeoutMs,
+  });
+  if (!result.success) {
+    return {
+      accounts: [failedAccount(CODEX_CLI_ACCOUNT, result.error, result.facts)],
+      debug: [{ key: "codex_cli_source", value: "ready" }],
+    };
+  }
+  return {
+    accounts: [
+      {
+        name: CODEX_CLI_ACCOUNT,
+        rows: [statusRow("Quota from the Codex CLI sign-in"), ...quotaWindowRows(result)],
+        errors: [],
+      },
+    ],
+    debug: [{ key: "codex_cli_source", value: "ready" }],
+  };
+}
+
 export const openaiProvider: QuotaProvider = {
   id: "openai",
   cachePolicy: {
     kind: "resolved-auth",
-    resolveIdentity: async () => openaiLoginsIdentity(await readOpenAILogins()),
+    resolveIdentity: async (ctx) => {
+      const identity = await openaiLoginsIdentity(await readOpenAILogins());
+      if (!ctx.config?.openaiCodexCliSource) return identity;
+      const source = await readCodexCliSource();
+      if (source.state !== "ready") return identity;
+      const codexIdentity = await deriveResolvedAuthIdentity({
+        providerId: "openai",
+        principal: { kind: "stable-id", value: `codex-cli:${source.login.accountId ?? "unknown"}` },
+        qualifiers: ["codex-cli"],
+      });
+      if (!codexIdentity) return identity;
+      if (!identity) return codexIdentity;
+      return composeResolvedAuthIdentities({
+        providerId: "openai",
+        identities: [identity, codexIdentity],
+      });
+    },
   },
 
   async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
@@ -172,7 +244,15 @@ export const openaiProvider: QuotaProvider = {
       return true;
     }
     // Without an OpenAI alias, an OAuth sign-in or a stored API key counts.
-    return (await readOpenAILogins()).some(({ row, oauth }) => oauth || row.value.type === "api");
+    if ((await readOpenAILogins()).some(({ row, oauth }) => oauth || row.value.type === "api")) {
+      return true;
+    }
+    // The Codex CLI's sign-in is a source of OpenAI quota too, when the settings ask for it.
+    if (ctx.config?.openaiCodexCliSource) {
+      const source = await readCodexCliSource();
+      if (source.state !== "missing") return true;
+    }
+    return false;
   },
 
   matchesCurrentModel(model: string): boolean {
@@ -222,7 +302,15 @@ export const openaiProvider: QuotaProvider = {
     });
 
     const debug = activeLoginStatusDetails(logins);
-    if (accounts.length > 0) return { attempted: true, accounts, debug };
-    return { ...(await fetchActiveLoginQuota(requestTimeoutMs)), debug };
+    const listed =
+      accounts.length > 0
+        ? { attempted: true, accounts }
+        : await fetchActiveLoginQuota(requestTimeoutMs);
+    const codex = await fetchCodexCliQuota(ctx, listed.accounts);
+    return {
+      ...listed,
+      accounts: [...listed.accounts, ...codex.accounts],
+      debug: [...debug, ...codex.debug],
+    };
   },
 };
