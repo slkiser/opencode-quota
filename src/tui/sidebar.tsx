@@ -119,6 +119,9 @@ export function SidebarPanel(props: {
         >
           <b>{panel().title}</b>
         </text>
+        <Show when={open() && panel().lines.length > 0}>
+          <box height={1} />
+        </Show>
         <Show when={snapshot()} fallback={<text fg={host.theme().text.muted}>Loading quota…</text>}>
           {panel().lines.map((line) => (
             <LineText line={line} host={host} marked={line.id !== "" && line.id === marked()} />

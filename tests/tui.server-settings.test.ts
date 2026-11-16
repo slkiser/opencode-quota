@@ -21,7 +21,7 @@ import {
 import { SidebarPanel } from "../src/tui/sidebar.tsx";
 import { DEFAULT_WORDS } from "../src/view/format.js";
 import { stubJsx } from "./helpers/fake-tui-host.js";
-import { textLines, THEME } from "./helpers/jsx-tree.js";
+import { findAll, textLines, THEME } from "./helpers/jsx-tree.js";
 
 const field = (path: string) => FIELDS.find((item) => item.path === path) as Field;
 
@@ -578,6 +578,19 @@ describe("the server settings this window edits", () => {
       const USED = "▼ Quota used | Copilot | 7d ████░░░░░░░░░░░░░░░░ 20%";
 
       expect(sidebar()).toBe(LEFT);
+      const gap = (open: boolean, quota = host.quota) =>
+        findAll(
+          SidebarPanel({
+            host: { ...host, quota },
+            sessionID: "ses_1",
+            open: () => open,
+            setOpen: () => {},
+          }),
+          (node) => node.type === "box" && node.props.height === 1,
+        );
+      expect(gap(true)).toHaveLength(1);
+      expect(gap(false)).toHaveLength(0);
+      expect(gap(true, { ...host.quota, snapshot: () => undefined })).toHaveLength(0);
       server.set("words.percent", "used");
       expect(sidebar()).toBe(USED);
       await server.save();
