@@ -115,6 +115,7 @@ export const KNOWN_PATH_PARTS: ReadonlySet<string> = new Set([
   "bin",
   ".cursor",
   "cursor",
+  ".codex",
   "Library",
   "Application Support",
   "AppData",
@@ -1120,6 +1121,12 @@ const DEBUG_DETAILS = {
     auth_method: oneOf("chatgpt-token-sharing"),
     token_status: oneOf("api key", "failed", "expired", "valid"),
     token_expires_at: time,
+    // The Codex CLI sign-in a Sign in with ChatGPT login falls back to (#316). Its account id is
+    // never shown, only whether it matches the login's own.
+    codex_cli_state: oneOf("configured", "missing", "unavailable"),
+    codex_cli_sign_in: (value, { homeDir }) => pathText(value, homeDir),
+    codex_cli_account: oneOf("same", "different", "unknown"),
+    codex_cli_expires_at: time,
   },
   cursor: {
     plan: oneOf("Pro", "Pro Plus", "Ultra", "none"),
