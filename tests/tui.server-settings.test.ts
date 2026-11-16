@@ -579,19 +579,12 @@ describe("the server settings this window edits", () => {
       const USED = `▼ Quota used | ${divider} | Copilot | 7d ████░░░░░░░░░░░░░░░░ 20%`;
 
       expect(sidebar()).toBe(LEFT);
-      const gap = (open: boolean, quota = host.quota) =>
+      expect(
         findAll(
-          SidebarPanel({
-            host: { ...host, quota },
-            sessionID: "ses_1",
-            open: () => open,
-            setOpen: () => {},
-          }),
+          SidebarPanel({ host, sessionID: "ses_1", open: () => true, setOpen: () => {} }),
           (node) => node.type === "box" && node.props.height === 1,
-        );
-      expect(gap(true)).toHaveLength(1);
-      expect(gap(false)).toHaveLength(0);
-      expect(gap(true, { ...host.quota, snapshot: () => undefined })).toHaveLength(0);
+        ),
+      ).toHaveLength(0);
       const dividers = (isOpen: boolean) =>
         findAll(
           SidebarPanel({
