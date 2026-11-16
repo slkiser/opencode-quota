@@ -6,6 +6,7 @@
 
 import type { ErrorFacts } from "../core/errors.js";
 import type { Amount, DebugDetail, QuotaRow, QuotaWindow } from "../core/types.js";
+import { windowRank } from "../core/windows.js";
 import { type CredentialRow, formatCredentialDisplayNames } from "../lib/opencode-auth.js";
 
 /** One row as a provider reports it; `key` is the part of the row id after the provider id. */
@@ -104,14 +105,16 @@ export type WindowRow = {
   value: WindowValue | undefined;
 };
 
-/** A quota row for each window the provider reported, in the given order. A window the provider
+/** A quota row for each window the provider reported, short window first. A window the provider
  * reports no quota for has no row: there is nothing to show for it. */
 export function windowRows(
   windows: readonly WindowRow[],
   method: ProviderRow["method"] = "remote_api",
 ): ProviderRow[] {
   const rows: ProviderRow[] = [];
-  for (const { slot, value } of windows) {
+  for (const { slot, value } of [...windows].sort(
+    (a, b) => windowRank(a.slot.window) - windowRank(b.slot.window),
+  )) {
     if (!value) continue;
     rows.push(
       windowRow({
