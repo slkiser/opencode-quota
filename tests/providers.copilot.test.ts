@@ -218,6 +218,35 @@ describe("copilot provider", () => {
       ],
     },
     {
+      name: "token-based billing under the entitlement as monthly credits",
+      replies: () =>
+        fakeHttp(() =>
+          copilotUser({
+            copilot_plan: "business",
+            ...snapshot({
+              entitlement: 1500,
+              remaining: 1413,
+              percent_remaining: 94.2,
+              credits_used: 86,
+              token_based_billing: true,
+            }),
+          }),
+        ),
+      rows: [
+        [
+          "copilot.allowance",
+          "business",
+          "Monthly",
+          "quota",
+          "provider_reported",
+          94.2,
+          "86 credit",
+          "1500 credit",
+          RESET,
+        ],
+      ],
+    },
+    {
       name: "over-limit AI credits with a clamped percentage",
       replies: () =>
         fakeHttp(() =>
