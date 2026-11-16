@@ -24,6 +24,7 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the l
 | Cursor             | [Needs setup](#cursor)                 | Local estimate     | Budget and spend   |
 | GitHub Copilot     | Automatic                              | Remote API         | Budget and usage   |
 | Google AGY         | [Needs setup](#google-agy-quick-setup) | Remote API         | Quota              |
+| Mistral AI         | Automatic                              | Remote API         | Budget             |
 | Ollama Cloud       | Automatic                              | Remote API         | Quota and balance  |
 | OpenAI             | Automatic                              | Remote API         | Quota and credits  |
 | OpenCode Go        | Automatic                              | Remote API         | Quota              |
@@ -45,12 +46,15 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the l
 | Gemini CLI              | [Needs setup](#gemini-cli)             | Remote API         | Quota              |
 | GitHub Copilot          | [Needs setup](#github-copilot)         | Remote API         | Budget and usage   |
 | Google AGY              | [Needs setup](#google-agy-quick-setup) | Remote API         | Quota              |
+| Mistral AI              | Automatic                              | Remote API         | Budget             |
 | OpenAI                  | Automatic                              | Remote API         | Quota and credits  |
 | OpenCode Zen            | Automatic                              | Remote API         | Budget and balance |
 | OpenRouter              | Automatic                              | Remote API         | Budget and spend   |
 | xAI                     | Automatic                              | Remote API         | Quota              |
 
 These tables show which plans a vendor sells. Except for Copilot organization/enterprise billing, each integration reports one signed-in account, seat, API key, or workspace.
+
+Mistral AI uses `MISTRAL_API_KEY`, an OpenCode Mistral API-key login, or the configured Mistral key. It queries the budget API and console `whoami` API with that key. The plan type selects **Vibe budget** for Chat or **API budget** for API; if the matching budget is unavailable, no other budget is substituted.
 
 </details>
 
