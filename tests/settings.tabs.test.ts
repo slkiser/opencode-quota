@@ -116,6 +116,7 @@ const EXPECTED = {
     custom: [],
     anthropic: { binaryPath: "claude" },
     cursor: { plan: "none", includedApiUsd: null, billingCycleStartDay: null },
+    openai: { codexCliSource: false },
     opencode: { monthlyLimitUsd: null },
     checking: { minIntervalMs: 300000, requestTimeoutMs: 5000, waitForQuotaReset: true },
     pricing: { source: "auto", autoRefreshDays: 7 },

@@ -313,6 +313,9 @@ export const en = {
   "setting.providers.cursor.billingCycleStartDay": "Cursor billing day",
   "setting.providers.cursor.billingCycleStartDay.description":
     "The day of the month your Cursor bill renews. Empty uses the calendar month.",
+  "setting.providers.openai.codexCliSource": "Codex CLI quota",
+  "setting.providers.openai.codexCliSource.description":
+    "Read the ChatGPT quota of the account the Codex CLI is signed in to, as a second OpenAI account.",
   "setting.providers.opencode.monthlyLimitUsd": "OpenCode Zen monthly budget",
   "setting.providers.opencode.monthlyLimitUsd.description":
     "Dollars a month to use instead of the Console's budget. Empty uses the Console's.",

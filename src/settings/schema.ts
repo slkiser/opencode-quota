@@ -176,6 +176,8 @@ export const SETTINGS_SCHEMA = {
   "providers.cursor.plan": choice(["none", "pro", "pro-plus", "ultra"], "none"),
   "providers.cursor.includedApiUsd": USD,
   "providers.cursor.billingCycleStartDay": { ...whole(1, 28), nullable: true, default: null },
+  /** Read the Codex CLI's own sign-in for ChatGPT quota. */
+  "providers.openai.codexCliSource": bool(false),
   "providers.opencode.monthlyLimitUsd": USD,
   "providers.checking.minIntervalMs": above0(300_000),
   "providers.checking.requestTimeoutMs": above0(5_000),
