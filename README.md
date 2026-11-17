@@ -143,6 +143,7 @@ Log in with `/connect` and the provider shows up. Switch providers on or off in 
 \* Linked names need one more step; the rest work once you log in. [What each one reports](docs/readme/providers.md#pre-configured-providers).
 
 - OpenAI ChatGPT needs a Codex login ([how](docs/readme/providers.md#openai-and-xai)).
+- Named Claude Code plugin accounts show [cached usage from Claude turns](docs/readme/providers.md#anthropic-claude), not live quota; no usage report means no row.
 - Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organization) accounts. Personal Google accounts use Google AGY.
 - Business plans of the Chinese providers show only your own API key's usage (Alibaba Token Plan: one Credits row per seat).
 - API keys come from OpenCode or an [environment variable](docs/readme/providers.md#api-keys).

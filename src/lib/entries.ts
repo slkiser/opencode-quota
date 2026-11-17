@@ -94,4 +94,13 @@ export interface QuotaProvider {
 
   /** Optional provider match for onlyCurrentModel filtering */
   matchesCurrentModel?: (model: string, context?: QuotaProviderMatchContext) => boolean;
+
+  /** The account, as its rows name it, that each OpenCode provider id uses, when known. */
+  usageAccounts?: (ctx: QuotaProviderContext) => Promise<Record<string, string> | undefined>;
+
+  /**
+   * True while its rows come from local data that is cheap to read and stale at once, as for a
+   * provider registered with `liveLocalUsage`: every refresh reads it again.
+   */
+  liveLocalUsage?: (ctx: QuotaProviderContext) => Promise<boolean>;
 }

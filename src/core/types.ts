@@ -146,6 +146,9 @@ export type SessionTokens = {
   models?: SessionModelInput[];
 };
 
+/** The quota provider and account an OpenCode provider uses. */
+export type ProviderAccount = { providerId: string; account: string };
+
 /** The words every surface uses, on every client (TUI, Web, Desktop, CLI). */
 export type Words = Settings["words"];
 
@@ -168,6 +171,11 @@ export type QuotaSnapshot = {
    * Every row is still checked; under "current model only" just these show.
    */
   currentModelRowPrefixes?: Record<string, string[]>;
+  /**
+   * With a session: the quota provider and account its current model uses, when its OpenCode
+   * provider is one account of that provider (`providerAccounts`).
+   */
+  currentModelAccount?: ProviderAccount;
   /** With a session: the tokens it used so far. */
   sessionTokens?: SessionTokens;
   /**
@@ -175,6 +183,11 @@ export type QuotaSnapshot = {
    * (`quota-providers.custom.<definition id>.`); absent without custom definitions.
    */
   customRowProviders?: Record<string, string>;
+  /**
+   * The quota provider and account each OpenCode provider uses, by OpenCode provider id, when
+   * one provider's accounts are separate OpenCode providers; absent otherwise.
+   */
+  providerAccounts?: Record<string, ProviderAccount>;
   /**
    * The server's words, for the text the server and CLI print (absent means the default words).
    * The TUI takes its words from its settings store instead.

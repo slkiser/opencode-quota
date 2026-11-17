@@ -129,6 +129,7 @@ export type StoreSource = {
   providerIdsForModel?: (model: SessionModel) => string[];
   /** By provider id, the row id prefixes serving a session's model (`currentModelRowPrefixes`). */
   rowPrefixesForModel?: (model: SessionModel) => Record<string, string[]>;
+  providerAccounts?: QuotaSnapshot["providerAccounts"];
 };
 
 type RefreshReason = "poll" | "turn" | "manual" | "retry";
@@ -700,6 +701,9 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
       ...(sessionID ? { sessionID } : {}),
       ...(operation.scope ? { sourceScope: operation.scope } : {}),
       providers,
+      ...(operation.source.providerAccounts
+        ? { providerAccounts: operation.source.providerAccounts }
+        : {}),
       resetNotices,
       generatedAtMs: nowMs,
       serverId,
@@ -710,6 +714,12 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
       snapshot.currentModelProviderIds = modelProviderIds;
       const { rowPrefixesForModel } = operation.source;
       if (rowPrefixesForModel) snapshot.currentModelRowPrefixes = rowPrefixesForModel(model);
+      const account = model.providerID
+        ? operation.source.providerAccounts?.[model.providerID]
+        : undefined;
+      if (account && modelProviderIds.includes(account.providerId)) {
+        snapshot.currentModelAccount = account;
+      }
     }
     return snapshot;
   }

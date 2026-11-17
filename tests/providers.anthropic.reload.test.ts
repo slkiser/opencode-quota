@@ -6,7 +6,8 @@
  * sends none only within the minute Claude's shared probe reuses its last reply.
  */
 
-import { join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { getProviders } from "../src/providers/registry.js";
@@ -71,7 +72,7 @@ function withoutIdentityStorage(): void {
  * One plugin instance: every module loaded afresh, OpenCode's logins bound again, and a store
  * over Claude alone (checks at most once a minute) on the shared snapshot file.
  */
-async function startInstance() {
+async function startInstance(providerIds = ["anthropic"]) {
   vi.resetModules();
   const { bindCredentialSource } = await import("../src/lib/opencode-auth.js");
   const { createSqliteCredentialSource } = await import("../src/lib/opencode-auth-sqlite.js");
@@ -94,7 +95,7 @@ async function startInstance() {
     notRead: [],
   };
   const client = {
-    config: { providers: async () => ({ data: { providers: [{ id: "anthropic" }] } }) },
+    config: { providers: async () => ({ data: { providers: providerIds.map((id) => ({ id })) } }) },
   };
   const host = {
     client,
@@ -103,7 +104,7 @@ async function startInstance() {
     settings: () => loaded,
   };
   const store = createQuotaStore({
-    source: () => loadProviderSource(host),
+    source: (model) => loadProviderSource(host, model),
     file: join(world.configDir, "snapshot-v6.json"),
     log: () => {},
   });
@@ -117,6 +118,157 @@ async function reloadAndPoll() {
   await store.snapshot();
   return { store, snapshot: await store.refresh({ reason: "poll" }) };
 }
+
+function usagePath(): string {
+  return join(process.env.XDG_STATE_HOME!, "opencode-claude-code-plugin", "account-usage.json");
+}
+
+function writeNamedReadings(): string {
+  const path = usagePath();
+  mkdirSync(dirname(path), { recursive: true });
+  const reading = {
+    utilization: 0.2,
+    observedAt: START_MS - SECOND,
+    resetsAt: START_MS + 60 * MINUTE,
+    status: "allowed",
+  };
+  writeFileSync(
+    path,
+    JSON.stringify({
+      version: 1,
+      accounts: {
+        default: { five_hour: reading },
+        work: { five_hour: reading },
+      },
+    }),
+  );
+  return path;
+}
+
+it("refreshes named readings, keeps valid ones through bad source data, and keeps listed-account and OpenCode-login caches apart", async () => {
+  const path = writeNamedReadings();
+  usageReply = usage;
+  const ids = ["anthropic", "claude-code-default", "claude-code-work", "openai"];
+  const first = await startInstance(ids);
+  const model = { providerID: "claude-code-work", id: "sonnet" };
+  const snapshot = await first.refresh({ reason: "manual", model });
+  expect(snapshot.providers[0]?.rows.map((row) => [row.id, row.account])).toEqual([
+    ["anthropic.five_hour", "Default"],
+    ["anthropic.five_hour", "Work"],
+  ]);
+  expect(snapshot.providerAccounts).toEqual({
+    "claude-code-default": { providerId: "anthropic", account: "Default" },
+    "claude-code-work": { providerId: "anthropic", account: "Work" },
+    "claude-code": { providerId: "anthropic", account: "Default" },
+    "claude-agent": { providerId: "anthropic", account: "Default" },
+  });
+  vi.setSystemTime(START_MS + MINUTE);
+  const reread = await first.refresh({ reason: "poll", model });
+  expect(reread.providers[0]).toMatchObject({
+    okAtMs: START_MS + MINUTE,
+    checkedAtMs: START_MS + MINUTE,
+  });
+  expect(usageRequests()).toBe(0);
+  writeFileSync(path, "{");
+  const bad = await first.refresh({ reason: "manual", model });
+  expect(bad.providers[0]).toMatchObject({ error: { code: "no_data" }, okAtMs: START_MS + MINUTE });
+  expect(bad.providers[0]?.rows.map((row) => row.percentRemaining)).toEqual([80, 80]);
+  const login = await first.refresh({
+    reason: "manual",
+    model: { providerID: "anthropic", id: "sonnet" },
+  });
+  expect(login.providers[0]?.rows[0]).toMatchObject({
+    id: "anthropic.five_hour",
+    percentRemaining: 90,
+  });
+  expect(login.providerAccounts).toBeUndefined();
+  const named = await first.snapshot({ refresh: false, model });
+  expect(named.sourceScope).not.toBe(login.sourceScope);
+  expect(named.providers[0]?.rows.map((row) => row.account)).toEqual(["Default", "Work"]);
+  ids.splice(ids.indexOf("claude-code-default"), 1);
+  const removed = await first.snapshot({ refresh: false, model });
+  expect(removed.sourceScope).not.toBe(named.sourceScope);
+  expect(removed.providers[0]?.rows ?? []).toEqual([]);
+});
+
+it("rereads the plugin's file at every refresh, without waiting out the check interval", async () => {
+  const path = writeNamedReadings();
+  const ids = ["claude-code-default", "claude-code-work"];
+  const model = { providerID: "claude-code-work", id: "sonnet" };
+  const store = await startInstance(ids);
+  await store.refresh({ reason: "poll", model });
+  const usage = JSON.parse(readFileSync(path, "utf8"));
+  usage.accounts.work.five_hour.utilization = 0.5;
+  writeFileSync(path, JSON.stringify(usage));
+  vi.setSystemTime(START_MS + 10 * SECOND);
+  const polled = await store.refresh({ reason: "poll", model });
+  expect(polled.providers[0]?.rows.map((row) => [row.account, row.percentRemaining])).toEqual([
+    ["Default", 80],
+    ["Work", 50],
+  ]);
+});
+
+it("names the account the session's model uses, and none for another vendor's model", async () => {
+  writeNamedReadings();
+  const store = await startInstance(["claude-code-default", "claude-code-work"]);
+  const work = await store.refresh({
+    reason: "poll",
+    model: { providerID: "claude-code-work", id: "sonnet" },
+  });
+  expect(work.currentModelAccount).toEqual({ providerId: "anthropic", account: "Work" });
+  const other = await store.snapshot({
+    refresh: false,
+    model: { providerID: "openai", id: "gpt-5" },
+  });
+  expect(other.currentModelAccount).toBeUndefined();
+});
+
+it("rereads 30 s after a turn when the plugin had no reading yet, without a backoff", async () => {
+  const ids = ["claude-code-default", "claude-code-work"];
+  const model = { providerID: "claude-code-work", id: "sonnet" };
+  const store = await startInstance(ids);
+  const path = usagePath();
+  for (const minute of [0, 1, 2, 3]) {
+    if (minute === 2) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, JSON.stringify({ version: 1, accounts: {} }));
+    }
+    vi.setSystemTime(START_MS + minute * MINUTE);
+    const polled = await store.refresh({ reason: "poll", model });
+    expect(polled.providers[0]).toMatchObject({
+      rows: [],
+      checkedAtMs: START_MS + minute * MINUTE,
+    });
+    expect(polled.providers[0]?.error).toBeUndefined();
+  }
+  writeNamedReadings();
+  vi.setSystemTime(START_MS + 3 * MINUTE + 30 * SECOND);
+  const afterTurn = await store.refresh({ reason: "turn", model });
+  expect(afterTurn.providers[0]?.rows.map((row) => [row.account, row.percentRemaining])).toEqual([
+    ["Default", 80],
+    ["Work", 80],
+  ]);
+});
+
+it("keeps no copy of named readings across a reload, and its first refresh rereads the plugin's file", async () => {
+  writeNamedReadings();
+  const ids = ["anthropic", "claude-code-default", "claude-code-work"];
+  const model = { providerID: "claude-code-work", id: "sonnet" };
+  const first = await startInstance(ids);
+  await first.refresh({ reason: "manual", model });
+  await first.dispose();
+
+  vi.setSystemTime(START_MS + 10 * SECOND);
+  const reloaded = await startInstance(ids);
+  const restored = await reloaded.snapshot({ refresh: false, model });
+  expect(restored.providers[0]?.rows ?? []).toEqual([]);
+  const polled = await reloaded.refresh({ reason: "poll", model });
+  expect(polled.providers[0]?.checkedAtMs).toBe(START_MS + 10 * SECOND);
+  expect(polled.providers[0]?.rows.map((row) => [row.account, row.percentRemaining])).toEqual([
+    ["Default", 80],
+    ["Work", 80],
+  ]);
+});
 
 describe.each([
   { login: "a saved login", saved: true },

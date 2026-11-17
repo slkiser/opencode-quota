@@ -38,7 +38,7 @@ import {
   notifyCredentialsChanged,
 } from "./lib/opencode-auth.js";
 import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
-import { getQuotaProviderRuntimeIds } from "./lib/provider-metadata.js";
+import { getQuotaProviderIdsForRuntimeId } from "./lib/provider-metadata.js";
 import { statusReport } from "./lib/quota-dialog-commands.js";
 import {
   containsQuotaReport,
@@ -156,8 +156,8 @@ export function createQuotaServerPlugin(
               detectedProviderIds: detected.filter(
                 (id) =>
                   runtime.has(id) ||
-                  !getQuotaProviderRuntimeIds(id).some(
-                    (runtimeId) => runtimeId !== id && runtime.has(runtimeId),
+                  ![...runtime].some((runtimeId) =>
+                    getQuotaProviderIdsForRuntimeId(runtimeId).some((owner) => owner === id),
                   ),
               ),
             });

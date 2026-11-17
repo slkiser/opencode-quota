@@ -112,7 +112,11 @@ export function quotaCallOptions(host: RpcLocationHost): QuotaRpcCallOptions {
 /** What a snapshot says only about one session. */
 type SessionPart = Pick<
   QuotaSnapshot,
-  "currentModelProviderIds" | "currentModelRowPrefixes" | "sessionTokens" | "sourceScope"
+  | "currentModelProviderIds"
+  | "currentModelRowPrefixes"
+  | "currentModelAccount"
+  | "sessionTokens"
+  | "sourceScope"
 >;
 
 type SessionRead = { atMs: number };
@@ -247,6 +251,7 @@ export function createQuotaClient(
       sessionID: snapshotSessionID,
       currentModelProviderIds,
       currentModelRowPrefixes,
+      currentModelAccount,
       sessionTokens,
       ...shared
     } = snapshot;
@@ -294,7 +299,12 @@ export function createQuotaClient(
         [sessionID]: {
           ...all[sessionID],
           ...(newerModel
-            ? { sourceScope: shared.sourceScope, currentModelProviderIds, currentModelRowPrefixes }
+            ? {
+                sourceScope: shared.sourceScope,
+                currentModelProviderIds,
+                currentModelRowPrefixes,
+                currentModelAccount,
+              }
             : {}),
           ...(newerCall ? { sessionTokens } : {}),
         },

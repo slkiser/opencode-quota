@@ -1652,6 +1652,29 @@ describe("renderQuotaStatusReport", () => {
       ],
     },
     {
+      name: "Claude Code plugin readings without account identifiers",
+      overrides: {
+        providers: [
+          snapshot("anthropic", {
+            rows: [
+              row("anthropic.five_hour", {
+                account: SECRET,
+                window: "five_hour",
+                percentRemaining: 80,
+              }),
+            ],
+            debug: [{ key: "quota_source", value: "claude-code-plugin-account-usage" }],
+          }),
+        ],
+      },
+      title: "anthropic",
+      lines: [
+        "  - anthropic.five_hour (account 1): window=five_hour, 80% left",
+        "- quota_source: claude-code-plugin-account-usage",
+      ],
+      absent: [SECRET],
+    },
+    {
       name: "the Claude CLI's paths and commands",
       overrides: {
         homeDir: "/Users/alice",

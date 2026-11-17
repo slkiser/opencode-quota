@@ -1,5 +1,8 @@
 import type { QuotaProviderContext } from "./entries.js";
-import { type CanonicalQuotaProviderId, getQuotaProviderRuntimeIds } from "./provider-metadata.js";
+import {
+  type CanonicalQuotaProviderId,
+  getQuotaProviderIdsForRuntimeId,
+} from "./provider-metadata.js";
 
 export async function isAnyProviderIdAvailable(params: {
   ctx: Pick<QuotaProviderContext, "resolveRuntimeProviderIds">;
@@ -22,9 +25,12 @@ export async function isCanonicalProviderAvailable(params: {
   fallbackOnError: boolean;
 }): Promise<boolean> {
   const { ctx, providerId, fallbackOnError } = params;
-  return isAnyProviderIdAvailable({
-    ctx,
-    candidateIds: getQuotaProviderRuntimeIds(providerId),
-    fallbackOnError,
-  });
+
+  try {
+    const ids = await ctx.resolveRuntimeProviderIds();
+    // Named Claude Code accounts (`claude-code-<account>`) are in no fixed list of runtime ids.
+    return [...ids].some((id) => getQuotaProviderIdsForRuntimeId(id).includes(providerId));
+  } catch {
+    return fallbackOnError;
+  }
 }

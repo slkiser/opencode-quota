@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import type { ProviderSourceHost } from "../core/provider-source.js";
 import { loadSettings } from "../settings/index.js";
 import { offProviderId, PROVIDER_IDS } from "../settings/schema.js";
-import { hasAnthropicCredentialsConfigured } from "./anthropic.js";
+import { hasAnthropicCredentialsConfigured, readAnthropicLogins } from "./anthropic.js";
 import { API_KEY_VENDORS, resolveApiKeyLogin } from "./api-key-resolver.js";
 import {
   buildCliShowJson,
@@ -21,7 +21,7 @@ import { createSqliteCredentialSource } from "./opencode-auth-sqlite.js";
 import { bindCredentialSource } from "./opencode-auth.js";
 import { loadConfiguredProviderIds } from "./opencode-config-providers.js";
 import { resolveOpenCodeConsoleAuth } from "./opencode-console-auth.js";
-import { getCanonicalQuotaProviderId } from "./provider-metadata.js";
+import { claudeCodePluginAccount, getCanonicalQuotaProviderId } from "./provider-metadata.js";
 
 interface RunCliCommandOptions {
   argv?: string[];
@@ -143,13 +143,22 @@ function parseArgs(command: CliCommand, argv: string[]): ParsedArgs {
 /**
  * Logins OpenCode may not list as providers: the Claude CLI, the Kimi CLI and the Console
  * sign-in. OpenCode lists Go from the Console's own answer; here Go's Console check decides.
+ * Next to named Claude Code plugin accounts, the Claude CLI's login is their `default` account,
+ * so only an OpenCode login lists `anthropic`, as in OpenCode.
  */
 async function loadCliAuthenticatedProviderIds(
   anthropicBinaryPath: string,
   directory: string,
+  configuredIds: readonly string[],
 ): Promise<string[]> {
+  const pluginAccounts = configuredIds.some((id) => claudeCodePluginAccount(id) !== undefined);
   const [anthropicConfigured, kimiGlobalAuth, kimiCnAuth, consoleAuth] = await Promise.all([
-    hasAnthropicCredentialsConfigured({ binaryPath: anthropicBinaryPath }),
+    pluginAccounts
+      ? readAnthropicLogins().then(
+          (logins) => logins.length > 0,
+          () => false,
+        )
+      : hasAnthropicCredentialsConfigured({ binaryPath: anthropicBinaryPath }),
     resolveApiKeyLogin(API_KEY_VENDORS["kimi-code-plan-global"], directory),
     resolveApiKeyLogin(API_KEY_VENDORS["kimi-code-plan-cn"], directory),
     resolveOpenCodeConsoleAuth(),
@@ -177,10 +186,12 @@ export function createCliQuotaClient(params: {
     config: {
       providers: async () => {
         providerIdsPromise ??= (async () => {
-          const [configuredIds, authenticatedIds] = await Promise.all([
-            loadConfiguredProviderIds(params.directory),
-            loadCliAuthenticatedProviderIds(params.anthropicBinaryPath, params.directory),
-          ]);
+          const configuredIds = await loadConfiguredProviderIds(params.directory);
+          const authenticatedIds = await loadCliAuthenticatedProviderIds(
+            params.anthropicBinaryPath,
+            params.directory,
+            configuredIds,
+          );
           return [...new Set([...configuredIds, ...authenticatedIds])];
         })();
         const ids = await providerIdsPromise;

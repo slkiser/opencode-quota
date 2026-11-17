@@ -215,6 +215,7 @@ function storeProvider(
   ctx: QuotaProviderContext,
   settingsKey: string,
   definition?: QuotaProviderDefinition,
+  liveLocal = false,
 ): StoreProvider {
   const cacheContext = () =>
     definition
@@ -233,7 +234,7 @@ function storeProvider(
     ...(definition ? { key: `${provider.id}:${definition.id}` } : {}),
     label: getQuotaProviderDisplayLabel(provider.id),
     // Cursor counts OpenCode's own history: cheap, and stale at once.
-    ...(isLiveLocalUsageProviderId(provider.id) ? { minIntervalMs: 0 } : {}),
+    ...(liveLocal || isLiveLocalUsageProviderId(provider.id) ? { minIntervalMs: 0 } : {}),
     ...(definition?.minIntervalMs === undefined ? {} : { minIntervalMs: definition.minIntervalMs }),
     ...(definition
       ? {
@@ -335,8 +336,33 @@ async function readProviderSource(
   const separateCustomChecks = customDefinitions.some(
     (definition) => definition.minIntervalMs !== undefined,
   );
+  const usageAccounts = await Promise.all(
+    enabled.map(async (provider, index) => {
+      if (!available[index] || !provider.usageAccounts) return [];
+      try {
+        return Object.entries((await provider.usageAccounts(ctx)) ?? {}).map(
+          ([id, account]) => [id, { providerId: provider.id, account }] as const,
+        );
+      } catch {
+        return [];
+      }
+    }),
+  );
+  const providerAccounts = Object.fromEntries(usageAccounts.flat());
+  const liveLocal = await Promise.all(
+    enabled.map(async (provider, index) => {
+      if (!available[index] || !provider.liveLocalUsage) return false;
+      try {
+        return await provider.liveLocalUsage(ctx);
+      } catch {
+        return false;
+      }
+    }),
+  );
+  const liveLocalIds = new Set(enabled.filter((_, index) => liveLocal[index]).map(({ id }) => id));
   return {
     ...(scoped.length ? { scope: JSON.stringify(scoped) } : {}),
+    ...(Object.keys(providerAccounts).length ? { providerAccounts } : {}),
     providers: enabled
       .filter((_, index) => available[index])
       .flatMap((provider) =>
@@ -349,7 +375,7 @@ async function readProviderSource(
                 definition,
               ),
             )
-          : [storeProvider(provider, ctx, settingsKey)],
+          : [storeProvider(provider, ctx, settingsKey, undefined, liveLocalIds.has(provider.id))],
       ),
     minIntervalMs: loaded.settings.providers.checking.minIntervalMs,
     providerIdsForModel: (model) => providerIdsForModel(providers, ctx, model),

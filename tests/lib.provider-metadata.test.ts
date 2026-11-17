@@ -69,6 +69,10 @@ describe("provider-metadata", () => {
     ["claude", []],
     ["claude-code", ["anthropic", "anthropic-api"]],
     ["claude-agent", ["anthropic", "anthropic-api"]],
+    ["claude-code-default", ["anthropic"]],
+    ["CLAUDE-CODE-work_2", ["anthropic"]],
+    ["claude-code-", []],
+    ["claude-code-work/other", []],
   ])("finds the provider owning the runtime id %j", (runtimeId, ids) => {
     expect(getQuotaProviderIdsForRuntimeId(runtimeId)).toEqual(ids);
   });

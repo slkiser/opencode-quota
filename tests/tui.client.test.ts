@@ -231,16 +231,20 @@ describe("TUI quota client", () => {
     stop();
   });
 
-  it("keeps which custom sources serve a session's model to that session", async () => {
+  it("keeps which custom sources and account serve a session's model to that session", async () => {
     const { client, answer } = fakeRpc();
     const stop = client.start();
     const prefixes = { "quota-providers": ["quota-providers.custom.alpha."] };
+    const account = { providerId: "anthropic", account: "Eng" };
     const asked = client.refresh("turn", "ses_1");
-    answer(0, { ...snapshot(2), currentModelRowPrefixes: prefixes });
+    answer(0, { ...snapshot(2), currentModelRowPrefixes: prefixes, currentModelAccount: account });
     await asked;
     expect(client.snapshot("ses_1")?.currentModelRowPrefixes).toEqual(prefixes);
-    expect(client.snapshot("ses_2")?.currentModelRowPrefixes).toBeUndefined();
-    expect(client.snapshot()?.currentModelRowPrefixes).toBeUndefined();
+    expect(client.snapshot("ses_1")?.currentModelAccount).toEqual(account);
+    for (const other of [client.snapshot("ses_2"), client.snapshot()]) {
+      expect(other?.currentModelRowPrefixes).toBeUndefined();
+      expect(other?.currentModelAccount).toBeUndefined();
+    }
     stop();
   });
 

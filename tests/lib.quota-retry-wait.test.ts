@@ -260,6 +260,22 @@ describe("resolveQuotaResetRetryDelayMs", () => {
     await expect(resolve(onB)).resolves.toBe(10 * MINUTE_MS + QUOTA_RESET_RETRY_BUFFER_MS);
   });
 
+  it("counts only the account the retried model uses, when each account is its own provider", async () => {
+    const zai = {
+      ...makeProvider("zai", [], (model) => model.includes("glm")),
+      fetch: vi.fn(async () =>
+        answer(
+          { name: "Personal", rows: [window("5h", 0, at(10 * MINUTE_MS))] },
+          { name: "Team", rows: [window("5h", 0, at(90 * MINUTE_MS))] },
+        ),
+      ),
+      usageAccounts: async () => ({ "zai-coding-plan": "Team" }),
+    };
+    useProviders([zai]);
+
+    await expect(resolve(limitEvent)).resolves.toBe(WAIT_FOR_ZAI);
+  });
+
   it("ignores a provider where one of the logins failed: its kept rows are old", async () => {
     const zai = usedUpZai();
     zai.fetch.mockResolvedValue(

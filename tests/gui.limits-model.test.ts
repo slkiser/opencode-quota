@@ -140,6 +140,21 @@ describe("GUI limit cards", () => {
     expect(week?.pace?.words).toMatch(/^runs out in /u);
   });
 
+  it("marks only the account the session's model uses as serving it", () => {
+    const fiveHour = (account: string) =>
+      row("anthropic.five_hour", { window: "five_hour", account, percentRemaining: 50 });
+    const snapshot: QuotaSnapshot = {
+      ...SNAPSHOT,
+      providers: [{ ...SNAPSHOT.providers[0]!, rows: [fiveHour("Default"), fiveHour("Eng")] }],
+      currentModelAccount: { providerId: "anthropic", account: "Eng" },
+    };
+    const cards = limitCards(snapshot, displayOf(snapshot), NOW);
+    expect(cards.map((card) => [card.account, card.current])).toEqual([
+      ["Default", false],
+      ["Eng", true],
+    ]);
+  });
+
   it("colors by pace when the bar colors follow it, and leaves out the mark when it is off", () => {
     const snapshot = withValues({ "colors.levelBy": "pace", "layout.evenUse": false });
     const [fiveHour] = limitCards(snapshot, displayOf(snapshot), NOW)[0]?.rows ?? [];

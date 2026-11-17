@@ -82,14 +82,54 @@ export function getQuotaProviderDisplayLabel(id: string): string {
   return LABELS[normalizeQuotaProviderId(id)] ?? id;
 }
 
-/** The OpenCode provider ids that count as this provider (narrower than its synonyms). */
+/**
+ * The fixed OpenCode provider ids that count as this provider (narrower than its synonyms). A
+ * named Claude Code plugin account (`claude-code-<account>`) also counts as `anthropic`, so check
+ * a listed id with `getQuotaProviderIdsForRuntimeId`.
+ */
 export function getQuotaProviderRuntimeIds(id: string): readonly string[] {
   const providerId = getCanonicalQuotaProviderId(id);
   return providerId ? [...new Set(QUOTA_PROVIDER_RUNTIME_IDS[providerId])] : [];
 }
 
+export function claudeCodePluginAccount(id: string): string | undefined {
+  return /^claude-code-([a-z0-9_-]{1,64})$/u.exec(id.trim().toLowerCase())?.[1];
+}
+
+export function claudeCodePluginProviderId(account: string): string {
+  return `claude-code-${account}`;
+}
+
+/**
+ * The OpenCode providers opencode-claude-code-plugin creates for its `accounts` option: one per
+ * account, `default` always first, else its single `claude-code` provider.
+ */
+export function claudeCodePluginProviderIds(accounts: unknown): string[] {
+  if (!Array.isArray(accounts)) return ["claude-code"];
+  const names = accounts
+    .map((account) =>
+      String(account)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/gu, "-")
+        .replace(/^-+|-+$/gu, ""),
+    )
+    .filter(Boolean);
+  return [...new Set(["default", ...names])].map(claudeCodePluginProviderId);
+}
+
+/** The account as opencode-claude-code-plugin names its providers: "my-team" is "My Team". */
+export function claudeCodePluginAccountLabel(account: string): string {
+  return account
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function getQuotaProviderIdsForRuntimeId(id: string): readonly CanonicalQuotaProviderId[] {
   const normalized = id.trim().toLowerCase();
+  if (claudeCodePluginAccount(normalized)) return ["anthropic"];
   return CATALOG.filter(([, entry]) => entry.runtimeIds.includes(normalized)).map(([id]) => id);
 }
 

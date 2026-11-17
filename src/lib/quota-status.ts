@@ -1070,6 +1070,7 @@ const DEBUG_DETAILS = {
       "claude-auth-status-json",
       "claude-credentials-oauth-api",
       "opencode-auth-oauth-api",
+      "claude-code-plugin-account-usage",
     ),
     oauth_credential_source: oneOf("opencode-auth", "claude-credentials"),
     checked_commands: claudeCommands,

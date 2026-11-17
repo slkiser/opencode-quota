@@ -241,6 +241,31 @@ describe("GUI one-row surfaces", () => {
     expect(currentModelPick(noModel, settings, NOW)).toBeUndefined();
   });
 
+  it("gives the composer pill the account the session's model uses, and no other account's", () => {
+    const { snapshot, settings } = settingsWith({});
+    const fiveHour = (account: string, percentRemaining: number) =>
+      row("anthropic.five_hour", { label: "5h", window: "five_hour", account, percentRemaining });
+    const named: QuotaSnapshot = {
+      ...snapshot,
+      providers: [
+        providerSnapshot("anthropic", "Anthropic", [fiveHour("Default", 80), fiveHour("Eng", 30)]),
+      ],
+      currentModelProviderIds: ["anthropic"],
+      currentModelAccount: { providerId: "anthropic", account: "Eng" },
+    };
+    expect(currentModelPick(named, settings, NOW)).toMatchObject({
+      account: "Eng",
+      row: { value: "30% left" },
+    });
+    const unread = { ...named, currentModelAccount: { providerId: "anthropic", account: "Work" } };
+    expect(currentModelPick(unread, settings, NOW)).toBeUndefined();
+    const failed = {
+      ...unread,
+      providers: [providerSnapshot("anthropic", "Anthropic", [], { error: { code: "no_data" } })],
+    };
+    expect(currentModelPick(failed, settings, NOW)).toMatchObject({ error: expect.any(String) });
+  });
+
   it("gives the composer pill a failed provider's error, in the danger tone", () => {
     const { snapshot, settings } = settingsWith({});
     const failed = { ...snapshot, currentModelProviderIds: ["zai"] };
