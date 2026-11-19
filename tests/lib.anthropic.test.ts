@@ -7,6 +7,7 @@ const fsMocks = vi.hoisted(() => ({ existsSync: vi.fn((_path: string) => false) 
 const readCredentialsFile = vi.hoisted(() => vi.fn());
 
 import { execFile } from "child_process";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadProviderSource } from "../src/core/provider-source.js";
@@ -814,6 +815,37 @@ describe("OAuth credential sources", () => {
     expect(diagnostics.quota?.seven_day.percentRemaining).toBe(60);
     expect(bearerTokensSent()).toEqual(["Bearer oauth-access-token-from-keychain"]);
     expect(readFileMock).not.toHaveBeenCalled();
+  });
+
+  it("reads the Keychain entry and credentials file for CLAUDE_CONFIG_DIR", async () => {
+    vi.stubEnv("CLAUDE_CONFIG_DIR", "/Users/test/.claude-work");
+    setProcessPlatform("darwin");
+    mockExecSequence([
+      CLI_VERSION,
+      CLI_AUTHENTICATED,
+      { code: 44, stderr: "The specified item could not be found in the keychain." },
+    ]);
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ claudeAiOauth: { accessToken: "oauth-access-token-work" } }),
+    );
+    fetchResponseMock.mockResolvedValue(
+      mockResponse(200, { usage: { five_hour: { used_percentage: 5 } } }),
+    );
+
+    try {
+      await getAnthropicDiagnostics();
+      const service = `Claude Code-credentials-${createHash("sha256").update("/Users/test/.claude-work").digest("hex").slice(0, 8)}`;
+      expect(execFileMock.mock.calls[2]?.slice(0, 2)).toEqual([
+        "security",
+        ["find-generic-password", "-s", service, "-w"],
+      ]);
+      expect(readFileMock.mock.calls[0]?.[0]).toBe(
+        join("/Users/test/.claude-work", ".credentials.json"),
+      );
+      expect(bearerTokensSent()).toEqual(["Bearer oauth-access-token-work"]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("falls back to the Claude credentials file when the macOS Keychain entry is unusable", async () => {
