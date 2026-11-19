@@ -474,6 +474,7 @@ describe("GitHub workflows", () => {
       "src/tui/sidebar.tsx",
       "src/gui/panel.tsx",
       "src/view/format.ts",
+      "src/settings/display.ts",
       "src/settings/schema.ts",
       "src/settings/shared.ts",
     ]) {

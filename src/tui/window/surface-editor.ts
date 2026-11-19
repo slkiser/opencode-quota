@@ -4,6 +4,7 @@
  * moves with its rows; a row moves only among its own provider's rows. Pure.
  */
 import type { ProviderSnapshot, QuotaRow, QuotaSnapshot } from "../../core/types.js";
+import type { SurfaceSettings } from "../../settings/display.js";
 import { afterPercent, errorWords, type Place, rowFacts } from "../../view/row-facts.js";
 import {
   type Group,
@@ -15,10 +16,10 @@ import {
   windowFor,
 } from "../../view/select.js";
 import { renameRow, setIn, stepIn } from "../../view/settings-edit.js";
-import type { DisplaySettings, SettingsTab } from "../display.js";
+import type { SettingsTab } from "../display.js";
 
 /** A change of the display settings, as `DisplayStore.edit` makes it. */
-export type SettingsEdit = (settings: DisplaySettings) => DisplaySettings;
+export type SettingsEdit = <T extends SurfaceSettings>(settings: T) => T;
 
 /**
  * One line of the tree: a provider, or one of its rows on a page that shows rows. `detail` is
@@ -75,7 +76,7 @@ export function surfaceEditor(surface: Surface, snapshot?: QuotaSnapshot) {
   const namesKey = surface === "toast" ? "toast" : "sidebar";
   const windowsKey = surface === "statusLine" ? "statusLine" : "collapsed";
 
-  function tree(settings: DisplaySettings): TreeProvider[] {
+  function tree(settings: SurfaceSettings): TreeProvider[] {
     const { providerOrder, rowOrder } = settings[surface];
     const providers = snapshot?.providers ?? [];
     return ordered(providers, (item) => item.providerId, providerOrder).map((provider) => {
@@ -91,12 +92,12 @@ export function surfaceEditor(surface: Surface, snapshot?: QuotaSnapshot) {
    * The settings with `id` (a provider, or a row within its provider) moved to the index `to`
    * picks in its list of `providers`, the settings' tree; the same object when it stays.
    */
-  function placed(
-    settings: DisplaySettings,
+  function placed<T extends SurfaceSettings>(
+    settings: T,
     providers: readonly TreeProvider[],
     id: string,
     to: (order: readonly string[], from: number, owner?: TreeProvider) => number,
-  ): DisplaySettings {
+  ): T {
     const providerIds = providers.map(({ provider }) => provider.providerId);
     const from = providerIds.indexOf(id);
     if (from >= 0) {
@@ -135,7 +136,7 @@ export function surfaceEditor(surface: Surface, snapshot?: QuotaSnapshot) {
 
   return {
     /** The tree's lines, top to bottom: each provider, then its rows on a page that shows rows. */
-    lines(settings: DisplaySettings, nowMs: number): TreeLine[] {
+    lines(settings: SurfaceSettings, nowMs: number): TreeLine[] {
       const shown = settings[surface];
       const names = settings[namesKey].names;
       const windows = settings[windowsKey].window;
@@ -221,7 +222,7 @@ export function surfaceEditor(surface: Surface, snapshot?: QuotaSnapshot) {
     },
 
     /** The windows a provider's ‹ › steps through; none where `cycleWindow` does nothing. */
-    windowChoices(providerId: string, settings: DisplaySettings): WindowChoice[] {
+    windowChoices(providerId: string, settings: SurfaceSettings): WindowChoice[] {
       const provider = snapshot?.providers.find((item) => item.providerId === providerId);
       if (withRows || !provider) return [];
       return windowChoices(shownGroup(provider, settings[surface].hidden));

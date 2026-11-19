@@ -6,6 +6,7 @@ import {
   getEffectiveCursorIncludedApiUsd,
 } from "../lib/cursor-pricing.js";
 import { isRecord } from "../lib/json-guards.js";
+import { ROLE_THEME } from "../settings/display.js";
 import {
   checkSetting,
   defaultSettings,
@@ -48,34 +49,31 @@ export { type FieldValue, type PresetName, presetChoice, presetValues, renameRow
 /** The settings the TUI shows: the saved ones, with the Settings tabs' draft on top. */
 export type DisplaySettings = Settings;
 
-/** Every colored thing: its Colors line (and group) and the theme color it gets by default. */
+/** Every colored thing: its Colors line and group. */
 const COLOR_LINES: ReadonlyArray<{
   role: ColorRole;
   title: string;
-  theme: ColorName | "bar";
   group?: string;
 }> = [
-  { role: "good", title: "Plenty left", theme: "green", group: "Bars" },
-  { role: "warning", title: "Getting low", theme: "yellow" },
-  { role: "low", title: "Almost out", theme: "red" },
-  { role: "empty", title: "Used part of a bar", theme: "muted" },
-  { role: "title", title: "Panel title", theme: "text", group: "Names" },
-  { role: "provider", title: "Provider names", theme: "text" },
-  { role: "account", title: "Accounts (Pro, …)", theme: "muted" },
-  { role: "label", title: "Row labels", theme: "text" },
-  { role: "percent", title: "Percent numbers", theme: "bar", group: "Numbers and times" },
-  { role: "reset", title: "Reset times", theme: "muted" },
-  { role: "value", title: "Balances, other text", theme: "muted" },
-  { role: "error", title: "Errors", theme: "red" },
-  { role: "statusName", title: "Provider names", theme: "muted", group: "Status line" },
-  { role: "separator", title: "Separators", theme: "muted" },
-  { role: "arrows", title: "‹ +N › arrows", theme: "accent" },
+  { role: "good", title: "Plenty left", group: "Bars" },
+  { role: "warning", title: "Getting low" },
+  { role: "low", title: "Almost out" },
+  { role: "empty", title: "Used part of a bar" },
+  { role: "title", title: "Panel title", group: "Names" },
+  { role: "provider", title: "Provider names" },
+  { role: "account", title: "Accounts (Pro, …)" },
+  { role: "label", title: "Row labels" },
+  { role: "percent", title: "Percent numbers", group: "Numbers and times" },
+  { role: "reset", title: "Reset times" },
+  { role: "value", title: "Balances, other text" },
+  { role: "error", title: "Errors" },
+  { role: "statusName", title: "Provider names", group: "Status line" },
+  { role: "separator", title: "Separators" },
+  { role: "arrows", title: "‹ +N › arrows" },
 ];
 
 /** The theme color each role gets unless you change it. */
-export const THEME_COLORS = Object.fromEntries(
-  COLOR_LINES.map(({ role, theme }) => [role, theme]),
-) as Record<ColorRole, ColorName | "bar">;
+export const THEME_COLORS = ROLE_THEME;
 const SURFACES: readonly Surface[] = ["sidebar", "collapsed", "statusLine", "toast"];
 
 /** The value at a field's path, for example "layout.barWidth". */
@@ -161,11 +159,11 @@ function colorTitle(choice: FieldValue): string {
 }
 
 /** A color line; undefined follows the theme. The bar colors themselves can't follow the bar. */
-function colorField({ role, title, theme, group }: (typeof COLOR_LINES)[number]): Field {
+function colorField({ role, title, group }: (typeof COLOR_LINES)[number]): Field {
   const isLevel = role === "good" || role === "warning" || role === "low";
   const values = [undefined, ...COLOR_NAMES, ...(isLevel ? [] : ["bar"])];
   const show = (value: FieldValue) =>
-    value === undefined ? `${colorTitle(theme)} (theme)` : colorTitle(value);
+    value === undefined ? `${colorTitle(ROLE_THEME[role])} (theme)` : colorTitle(value);
   return field(`colors.${role}`, title, show, { group, values, color: true });
 }
 

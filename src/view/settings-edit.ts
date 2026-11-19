@@ -3,7 +3,7 @@
  * share: a value put at a path, a step through a list, a row's own name. Pure.
  */
 import { isRecord } from "../lib/json-guards.js";
-import type { Settings } from "../settings/schema.js";
+import type { SurfaceSettings } from "../settings/display.js";
 
 /** Puts `value` at `keys` in `target` itself; undefined removes the key. */
 function putAt(target: object, keys: readonly string[], value: unknown): void {
@@ -21,8 +21,12 @@ function putAt(target: object, keys: readonly string[], value: unknown): void {
  * A copy of the settings with `value` at `keys` (a key may hold a dot, like a row id);
  * undefined removes the key, which puts a color back to the theme's or a row name back.
  */
-export function setIn(settings: Settings, keys: readonly string[], value: unknown): Settings {
-  const next = JSON.parse(JSON.stringify(settings)) as Settings;
+export function setIn<T extends SurfaceSettings>(
+  settings: T,
+  keys: readonly string[],
+  value: unknown,
+): T {
+  const next = JSON.parse(JSON.stringify(settings)) as T;
   putAt(next, keys, value);
   return next;
 }
@@ -37,12 +41,12 @@ export function stepIn<T>(values: readonly T[], current: T, delta: number): T {
  * Your name for a row; nothing typed puts its own name back. A name equal to its own label
  * stays, so it shows where `words.rowNames` "short" would show the window's short name.
  */
-export function renameRow(
-  settings: Settings,
+export function renameRow<T extends SurfaceSettings>(
+  settings: T,
   surface: "sidebar" | "toast",
   rowId: string,
   text: string,
-): Settings {
+): T {
   const label = text.trim();
   return setIn(settings, [surface, "names", rowId], label || undefined);
 }

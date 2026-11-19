@@ -29,3 +29,14 @@ export const UNSET_IS_NOT_DEFAULT: ReadonlySet<string> = new Set([
 
 /** Why a custom provider is not switched on: its definition is not the one the user saw. */
 export const CHANGED_SINCE_REVIEW = "changed since you reviewed it; look again";
+
+/** Sets a dotted key in a nested object, making the groups on the way. */
+export function setPath(target: object, key: string, value: unknown): void {
+  const parts = key.split(".");
+  let group = target as Record<string, unknown>;
+  for (const part of parts.slice(0, -1)) {
+    group[part] ??= {};
+    group = group[part] as Record<string, unknown>;
+  }
+  group[parts[parts.length - 1]] = value;
+}
