@@ -11,7 +11,7 @@
 import type { Context } from "@opencode/plugin/gui";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
-import type { Settings } from "../settings/schema.js";
+import type { SurfaceSettings } from "../settings/display.js";
 import { percentWord } from "../view/format.js";
 import { joinsPercent } from "../view/row-facts.js";
 import { type ColorRole } from "../view/text.js";
@@ -33,7 +33,7 @@ const CLOCK_MS = 60_000;
 type PanelProps = {
   ctx: Context;
   snapshot: () => QuotaSnapshot | undefined;
-  settings: () => Settings;
+  settings: () => SurfaceSettings;
   open: () => boolean;
   setOpen: (open: boolean) => void;
 };
@@ -77,7 +77,7 @@ type RowsProps = {
  * A reset time's class. In the "percent" style it starts after the percent, as in the TUI: the
  * time share right after it ("0%/93% 28d"), a time without one a gap after it ("10% 12d").
  */
-function resetClass(reset: string, words: Settings["words"]): string {
+function resetClass(reset: string, words: SurfaceSettings["words"]): string {
   if (joinsPercent(reset)) return "oq-pnum oq-share";
   return words.reset === "percent" ? "oq-pnum oq-pafter" : "oq-pnum";
 }

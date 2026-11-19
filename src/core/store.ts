@@ -95,6 +95,15 @@ export type ProviderFetch = {
 /** One check as the store records it: its rows as shown, its error, and when it was. */
 export type CheckForExport = { rows: QuotaRow[]; error?: QuotaError; checkedAtMs: number };
 
+/** One check's outcome, independent of retained rows and a refresh running now. */
+type CheckOutcome = (
+  | { state: "success"; rows: [LoginRow, ...LoginRow[]] }
+  | { state: "empty" }
+  | { state: "partial"; rows: [LoginRow, ...LoginRow[]]; error: QuotaError }
+  | { state: "failure"; error: QuotaError }
+) &
+  Pick<ProviderFetch, "debug" | "buildExportPart">;
+
 export type ProviderIdentity = {
   /** Changes whenever the rows would differ: another account or other provider settings. */
   key: string;
@@ -307,6 +316,21 @@ function loginRows(result: ProviderFetch): LoginRow[] {
     const login = result.rowLogins?.[index] ?? "";
     return { login: login ? hashText(login, 16) : "", row };
   });
+}
+
+/** Rows take precedence over `empty`; an error prevents an empty answer clearing rows. */
+function normalizeCheck(result: ProviderFetch): CheckOutcome {
+  const metadata = { debug: result.debug, buildExportPart: result.buildExportPart };
+  const [first, ...rest] = loginRows(result);
+  if (first) {
+    const rows: [LoginRow, ...LoginRow[]] = [first, ...rest];
+    return result.error
+      ? { ...metadata, state: "partial", rows, error: result.error }
+      : { ...metadata, state: "success", rows };
+  }
+  if (result.error) return { ...metadata, state: "failure", error: result.error };
+  if (result.empty) return { ...metadata, state: "empty" };
+  return { ...metadata, state: "failure", error: { code: "no_data" } };
 }
 
 /**
@@ -745,26 +769,25 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
   function record(provider: StoreProvider, where: ResolvedKey, result: ProviderFetch): void {
     const nowMs = now();
     const previous = entries.get(where.key);
-    const fresh = loginRows(result);
-    const gotRows = fresh.length > 0;
-    // An answer of nothing replaces the last rows, as an answer with rows does.
-    const replacesRows = gotRows || (result.empty === true && !result.error);
-    const error = result.error ?? (replacesRows ? undefined : ({ code: "no_data" } as const));
+    const check = normalizeCheck(result);
+    const fresh = check.state === "success" || check.state === "partial" ? check.rows : [];
+    const replacesRows = check.state !== "failure";
+    const error = check.state === "failure" || check.state === "partial" ? check.error : undefined;
     // With an error, the logins that did not answer keep their last rows.
     const answered = new Set(fresh.map((row) => row.login));
     const kept =
-      gotRows && result.error
+      check.state === "partial"
         ? (previous?.rows ?? []).filter((row) => !answered.has(row.login))
         : [];
     const rows = replacesRows ? [...fresh, ...kept] : (previous?.rows ?? []);
-    const found = gotRows && previous ? findResets(previous, rows, nowMs) : [];
+    const found = fresh.length > 0 && previous ? findResets(previous, rows, nowMs) : [];
     const notices = joinNotices(
       (previous?.notices ?? []).filter((notice) => nowMs - notice.atMs <= RESET_NOTICE_KEEP_MS),
       found,
     );
     const okAtMs = replacesRows ? nowMs : previous?.okAtMs;
     // The check's own rows, numbered among the kept ones as the snapshot numbers them.
-    const exportPart = result.buildExportPart?.({
+    const exportPart = check.buildExportPart?.({
       rows: shownRows(rows).slice(0, fresh.length),
       ...(error === undefined ? {} : { error }),
       checkedAtMs: nowMs,
@@ -785,7 +808,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
           : (previous?.failures ??
               fileLastCheck(provider.key ?? provider.id, where)?.failures ??
               0) + 1,
-      debug: result.debug,
+      debug: check.debug,
       ...(exportPart === undefined ? {} : { exportPart }),
       notices,
       resetSeenAtMs: replacesRows

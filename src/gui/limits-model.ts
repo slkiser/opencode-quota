@@ -9,6 +9,7 @@
  * `layout.evenUse` is on, and every pace word; its bar level from `barLevel`.
  */
 import type { QuotaSnapshot, Words } from "../core/types.js";
+import { settingsFromValues } from "../settings/display.js";
 import {
   barLevel,
   checkedAgoText,
@@ -56,65 +57,29 @@ export type SessionStrip = {
   output: string;
 };
 
-const DEFAULT_COLORS: GuiDisplay["colors"] = { levelBy: "left", warningBelow: 50, lowBelow: 20 };
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-function isStringList(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
-function isRecordOf<T>(
-  value: unknown,
-  item: (entry: unknown) => entry is T,
-): value is Record<string, T> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.values(value).every(item)
-  );
-}
-
-const isString = (value: unknown): value is string => typeof value === "string";
-
-function percentSetting(value: unknown, fallback: number): number {
-  return typeof value === "number" && value >= 0 && value <= 100 ? value : fallback;
-}
-
-/** The sidebar's rows from the settings values: what it hides, its orders and your names. */
-function sidebarRows(values: Record<string, unknown>): SurfaceRows {
-  const hidden = values["sidebar.hidden"];
-  const providerOrder = values["sidebar.providerOrder"];
-  const rowOrder = values["sidebar.rowOrder"];
-  const names = values["sidebar.names"];
-  return {
-    hidden: isStringList(hidden) ? hidden : [],
-    providerOrder: isStringList(providerOrder) ? providerOrder : [],
-    rowOrder: isRecordOf(rowOrder, isStringList) ? rowOrder : {},
-    names: isRecordOf(names, isString) ? names : {},
-  };
-}
 
 /** The settings the window reads: the snapshot's words and settings values, else the defaults. */
 export function displayOf(snapshot: QuotaSnapshot | undefined): GuiDisplay {
-  const values = snapshot?.settings?.values ?? {};
-  const levelBy = values["colors.levelBy"];
-  const lowBelow = percentSetting(values["colors.lowBelow"], DEFAULT_COLORS.lowBelow);
-  const sidebar = sidebarRows(values);
+  const settings = settingsFromValues(snapshot?.settings?.values ?? {});
+  const { levelBy, warningBelow, lowBelow } = settings.colors;
+  const { hidden, providerOrder, rowOrder, names } = settings.sidebar;
   const empty: SurfaceRows = { hidden: [], providerOrder: [], rowOrder: {} };
   return {
     words: snapshot?.words ?? DEFAULT_WORDS,
     colors: {
-      levelBy: levelBy === "pace" ? "pace" : "left",
+      levelBy,
       // "Getting low" is never below "almost out", as the server keeps it.
-      warningBelow: Math.max(
-        lowBelow,
-        percentSetting(values["colors.warningBelow"], DEFAULT_COLORS.warningBelow),
-      ),
+      warningBelow: Math.max(lowBelow, warningBelow),
       lowBelow,
     },
-    evenUse: values["layout.evenUse"] !== false,
-    rows: { sidebar, collapsed: empty, statusLine: empty, toast: empty },
+    evenUse: settings.layout.evenUse,
+    rows: {
+      sidebar: { hidden, providerOrder, rowOrder, names },
+      collapsed: empty,
+      statusLine: empty,
+      toast: empty,
+    },
   };
 }
 

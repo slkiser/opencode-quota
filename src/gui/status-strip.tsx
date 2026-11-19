@@ -14,7 +14,7 @@
 import type { Context } from "@opencode/plugin/gui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
-import type { Settings } from "../settings/schema.js";
+import type { SurfaceSettings } from "../settings/display.js";
 import { joinsPercent, retainedStatusBalance } from "../view/row-facts.js";
 import { type ColorRole } from "../view/text.js";
 import { Bar } from "./panel.js";
@@ -36,7 +36,7 @@ const ERROR_MARK = "⚠";
 type StripProps = {
   ctx: Context;
   snapshot: () => QuotaSnapshot | undefined;
-  settings: () => Settings;
+  settings: () => SurfaceSettings;
   openWindow: () => void;
 };
 
@@ -46,7 +46,7 @@ function StripItem(props: {
   ctx: Context;
   group: PickedGroup;
   detail: ItemDetail;
-  settings: Settings;
+  settings: SurfaceSettings;
   onClick: () => void;
 }) {
   const row = () => props.group.row;

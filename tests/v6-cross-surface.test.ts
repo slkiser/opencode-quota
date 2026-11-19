@@ -158,6 +158,7 @@ async function startHosts() {
     command: {
       transform: async (build: (editor: { add(command: ServerCommand): void }) => void) =>
         build({ add: (command) => serverCommands.push(command) }),
+      reload: async () => {},
     },
     rpc: { register },
     integration: createFakeIntegration([]),

@@ -66,6 +66,7 @@ const TUI_MAY_REACH = [
   "lib/token-buckets.js",
   "lib/version.js",
   "rpc.js",
+  "settings/display.js",
   "settings/schema.js",
   "settings/shared.js",
   "tui.js",

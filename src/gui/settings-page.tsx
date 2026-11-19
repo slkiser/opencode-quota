@@ -32,7 +32,8 @@ import {
   type QuotaRpcSettingsOutput,
   type QuotaRpcSettingsSchemaOutput,
 } from "../rpc.js";
-import type { CustomProviderSwitch, SettingRule, Settings } from "../settings/index.js";
+import { SURFACE_GROUPS, settingsFromValues, type SurfaceSettings } from "../settings/display.js";
+import type { CustomProviderSwitch, SettingRule } from "../settings/index.js";
 import { rpcErrorMessage } from "../tui/client.js";
 import {
   createSettingsDraft,
@@ -68,7 +69,6 @@ import {
   type Words,
 } from "./settings-model.js";
 import { createNote, createPluginChecks, createSave, type Load } from "./settings-page-state.js";
-import { SURFACE_GROUPS, settingsFromValues } from "./surface-settings.js";
 
 /** The page's id: its Settings tab, and `ctx.layout.settings`'s argument. */
 export const SETTINGS_PAGE_ID = "quota";
@@ -438,7 +438,7 @@ function Page(props: Shown) {
 type SectionProps = Shown & {
   section: Section;
   valueOf: (key: string) => unknown;
-  shown: () => Settings;
+  shown: () => SurfaceSettings;
   apply: (edit: SettingsEdit) => void;
 };
 

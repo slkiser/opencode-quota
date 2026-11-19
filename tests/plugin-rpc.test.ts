@@ -428,6 +428,30 @@ describe("server quota RPC", () => {
     await expect(call("snapshot", {})).resolves.toEqual({ snapshot: sent });
   });
 
+  it.each(["startup", "save"])("expires the conversion flag ten minutes after %s", async (when) => {
+    await rm(SETTINGS_FILE);
+    await writeFile(
+      join(folders.configDir, "opencode.json"),
+      JSON.stringify({ experimental: { quotaToast: { percentDisplayMode: "used" } } }),
+    );
+    if (when === "save")
+      await writeFile(join(folders.configDir, "opencode-quota", "quota-toast.jsonc"), "{ broken");
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    const { call } = await setupServer();
+    if (when === "save") {
+      clock.mockReturnValue(Date.now() + 20 * 60_000);
+      await call("saveSettings", { patch: { words: { percent: "used" } } });
+    }
+    const convertedAt = Date.now();
+    clock.mockReturnValue(convertedAt + 10 * 60_000 - 1);
+    await expect(call("snapshot", {})).resolves.toHaveProperty("snapshot.settingsConverted", true);
+    await call("saveSettings", { patch: { words: { reset: "compact" } } });
+    clock.mockReturnValue(convertedAt + 10 * 60_000);
+    await expect(call("snapshot", {})).resolves.not.toHaveProperty("snapshot.settingsConverted");
+    clock.mockReturnValue(convertedAt + 20 * 60_000);
+    await expect(call("snapshot", {})).resolves.not.toHaveProperty("snapshot.settingsConverted");
+  });
+
   it("checks every provider again at once when settings.jsonc changes a check setting", async () => {
     useSettings({ providers: { checking: { minIntervalMs: 60_000 } } });
     const fetch = vi.fn().mockResolvedValue(copilotAnswer(40));

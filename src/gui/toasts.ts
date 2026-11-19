@@ -31,7 +31,7 @@
 import type { Context } from "@opencode/plugin/gui";
 import { createEffect, onCleanup } from "solid-js";
 import type { QuotaSnapshot } from "../core/types.js";
-import type { Settings } from "../settings/schema.js";
+import type { SurfaceSettings } from "../settings/display.js";
 import { reportFailure } from "../tui/client.js";
 import {
   createToasts,
@@ -90,7 +90,7 @@ export type GuiToasts = {
 export function createGuiToasts(
   ctx: Context,
   data: GuiQuota,
-  settingsOf: (snapshot: QuotaSnapshot | undefined) => Settings = surfaceSettings,
+  settingsOf: (snapshot: QuotaSnapshot | undefined) => SurfaceSettings = surfaceSettings,
   drawRows: DrawRows = (view, settings) => drawToastRows(ctx, view, settings),
 ): GuiToasts {
   const startedAtMs = Date.now();

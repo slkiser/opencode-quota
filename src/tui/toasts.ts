@@ -35,12 +35,12 @@
  */
 import type { QuotaSnapshot, ResetNotice } from "../core/types.js";
 import { WINDOWS } from "../core/windows.js";
+import type { SurfaceSettings } from "../settings/display.js";
 import { levelOf } from "../view/format.js";
 import { rowFacts } from "../view/row-facts.js";
 import { visibleRow } from "../view/select.js";
 import { type Line, lineText, type ToastInput, toastInput, toastLines } from "../view/text.js";
 import type { QuotaClient } from "./client.js";
-import type { DisplaySettings } from "./display.js";
 import type { DrawnToast } from "./toast-colors.js";
 
 /** The title of quota's one-line toasts (a hint, a wrong range); quota toasts have none. */
@@ -63,7 +63,7 @@ export type ToastHost = {
    */
   show: (toast: ToastOptions, lines?: Line[], input?: ToastInput) => DrawnToast | undefined;
   /** The settings a toast follows: those of `snapshot`, the one it shows, when given. */
-  display: (snapshot?: QuotaSnapshot) => DisplaySettings;
+  display: (snapshot?: QuotaSnapshot) => SurfaceSettings;
   /** The terminal's columns, which a toast's width follows. */
   terminalWidth: () => number;
   quota: Pick<QuotaClient, "refresh" | "snapshot">;
@@ -132,14 +132,14 @@ export function toastRoom(terminalWidth: number): number {
   return Math.min(60, terminalWidth - 6) - 6 - CLOSE_ROOM;
 }
 
-function wantsTurnToast(display: DisplaySettings, trigger: TurnEnd, anyLow: boolean): boolean {
+function wantsTurnToast(display: SurfaceSettings, trigger: TurnEnd, anyLow: boolean): boolean {
   if (trigger === "compaction") return display.toast.afterCompaction;
   if (trigger === "question") return display.toast.afterQuestion;
   return display.toast.afterReply === "always" || (display.toast.afterReply === "low" && anyLow);
 }
 
 /** `toast.resetNotice` asks for a notice of this reset: every reset, or only weekly ones. */
-export function wantsResetNotice(display: DisplaySettings, notice: ResetNotice): boolean {
+export function wantsResetNotice(display: SurfaceSettings, notice: ResetNotice): boolean {
   if (!display.toast.show) return false;
   const setting = display.toast.resetNotice;
   return setting === "all" || (setting === "weekly" && notice.window === "week");
@@ -154,7 +154,7 @@ export function wantsResetNotice(display: DisplaySettings, notice: ResetNotice):
 export function resetMessage(
   notice: ResetNotice,
   snapshot: QuotaSnapshot,
-  display: DisplaySettings,
+  display: SurfaceSettings,
   nowMs: number,
 ): string | undefined {
   const provider = snapshot.providers.find((item) => item.providerId === notice.providerId);
@@ -213,7 +213,7 @@ export function createToasts(host: ToastHost): Toasts {
   }
 
   /** A quota toast now: the Toast surface's rows, as wide as the toast's text. */
-  function quotaInput(snapshot: QuotaSnapshot, display: DisplaySettings): ToastInput {
+  function quotaInput(snapshot: QuotaSnapshot, display: SurfaceSettings): ToastInput {
     return toastInput(snapshot, display, {
       nowMs: now(),
       width: toastRoom(host.terminalWidth()),

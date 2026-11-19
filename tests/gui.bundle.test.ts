@@ -70,10 +70,10 @@ describe("GUI bundle (dist/gui-experimental.cjs)", () => {
   it("leaves out the server's provider, credential and settings-schema code", async () => {
     const source = await readFile(new URL("../dist/gui-experimental.cjs", import.meta.url), "utf8");
     // Strings that survive minifying, each only in server code the bundle must not reach:
-    // SETTINGS_SCHEMA's keys (src/settings/schema.ts), the credential source's warning
+    // A provider-id check (src/settings/schema.ts), the credential source's warning
     // (src/lib/opencode-auth.ts) and the Copilot provider's config file (src/lib/copilot.ts).
     for (const marker of [
-      "statusLine.withSidebar",
+      "unknown provider id(s):",
       "credential source is not bound",
       "copilot-quota-token.json",
     ]) {

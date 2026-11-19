@@ -4,7 +4,8 @@
  * text.
  */
 import type { QuotaSnapshot, SessionModelInput, SessionTokens, Words } from "../core/types.js";
-import type { Settings } from "../settings/schema.js";
+import type { ColorRole, SurfaceSettings } from "../settings/display.js";
+
 import { columnsOf } from "./columns.js";
 import {
   type BarShape,
@@ -40,23 +41,8 @@ import {
   windowFor,
 } from "./select.js";
 
-/** Every colored thing quota draws; the TUI maps each to a theme color. */
-export type ColorRole =
-  | "title"
-  | "provider"
-  | "account"
-  | "label"
-  | "good"
-  | "warning"
-  | "low"
-  | "empty"
-  | "percent"
-  | "reset"
-  | "value"
-  | "error"
-  | "statusName"
-  | "separator"
-  | "arrows";
+/** Every colored thing quota draws; each role follows a theme color. */
+export type { ColorRole };
 
 /**
  * A piece of a line. `role` "bar" is the filled part of a bar, drawn in its level color.
@@ -82,7 +68,7 @@ export function withPaceLevel(segments: Segment[], paceLevel: Level | undefined)
 /** A line of a surface. `id` is the provider or row it shows ("" for a spacer). */
 export type Line = { id: string; segments: Segment[] };
 
-export type Layout = Settings["layout"];
+export type Layout = SurfaceSettings["layout"];
 
 export function lineText(line: Line): string {
   return line.segments.map((segment) => segment.text).join("");
@@ -722,7 +708,7 @@ export function plainLines(params: {
  * How a toast lays out its rows: one line per row under its provider's name ("grouped"), or
  * each row on two lines with a bar as wide as the toast ("detailed").
  */
-export type ToastLayout = Settings["toast"]["layout"];
+export type ToastLayout = SurfaceSettings["toast"]["layout"];
 
 export type ToastInput = {
   groups: Group[];
@@ -731,7 +717,7 @@ export type ToastInput = {
   /** The bar shape and the even-use mark; a toast's bars take the room it has. */
   layout: Layout;
   /** The colors of its roles and levels, for a window that draws the rows itself. */
-  colors: Settings["colors"];
+  colors: SurfaceSettings["colors"];
   toastLayout: ToastLayout;
   /** Columns of text inside the toast (`toastRoom`); no line is wider. */
   room: number;
@@ -949,7 +935,7 @@ export type SurfaceView = { nowMs: number; width: number };
 function surfaceInput(
   surface: Surface,
   snapshot: QuotaSnapshot,
-  settings: Settings,
+  settings: SurfaceSettings,
   nowMs: number,
 ) {
   return {
@@ -968,7 +954,7 @@ function surfaceInput(
  */
 export function sidebarPanel(
   snapshot: QuotaSnapshot | undefined,
-  settings: Settings,
+  settings: SurfaceSettings,
   view: SurfaceView & { open: boolean },
 ): { title: string; lines: Line[] } {
   const { nowMs, width } = view;
@@ -990,7 +976,7 @@ export function sidebarPanel(
 /** §4.3: what the status line lays out (`statusLayout`, `bigStatusLine`). */
 export function statusLineInput(
   snapshot: QuotaSnapshot,
-  settings: Settings,
+  settings: SurfaceSettings,
   nowMs: number,
 ): StatusInput {
   const input = surfaceInput("statusLine", snapshot, settings, nowMs);
@@ -1004,7 +990,7 @@ export function statusLineInput(
 /** §4.4: what a quota toast lays out (`toastLines`): its rows, then the tokens when it shows them. */
 export function toastInput(
   snapshot: QuotaSnapshot,
-  settings: Settings,
+  settings: SurfaceSettings,
   view: SurfaceView,
 ): ToastInput {
   return {

@@ -575,6 +575,44 @@ describe("integration credential source", () => {
     expect(resolvedIds(integration)).toEqual(["cred_xai", "cred_xai"]);
   });
 
+  it("ignores a late failure after a credential change and retries at once", async () => {
+    const integration = bindFakeIntegration([oauthCredential("openai", "cred_late_failure")]);
+    const old = Promise.withResolvers<never>();
+    integration.connection.resolve.mockReturnValueOnce(old.promise);
+    const read = readCredentialRows(["openai"]);
+    await vi.waitFor(() => expect(integration.connection.resolve).toHaveBeenCalledOnce());
+    notifyCredentialsChanged();
+    old.reject(new Error("old login"));
+    expect((await read)[0]?.resolveError).toBe("refresh_failed: old login");
+    expect(getCredentialSourceDiagnostics().failures).toEqual([]);
+    expect((await readCredentialRows(["openai"]))[0]?.value.access).toBe(
+      "cred_late_failure-access",
+    );
+    expect(integration.connection.resolve).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts a new resolve after a credential change and keeps sharing it when the old one ends", async () => {
+    const integration = bindFakeIntegration([oauthCredential("openai", "cred_new_epoch")]);
+    const old = Promise.withResolvers<Record<string, unknown>>();
+    const current = Promise.withResolvers<Record<string, unknown>>();
+    integration.connection.resolve
+      .mockReturnValueOnce(old.promise)
+      .mockReturnValueOnce(current.promise);
+    const oldRead = readCredentialRows(["openai"]);
+    await vi.waitFor(() => expect(integration.connection.resolve).toHaveBeenCalledOnce());
+    notifyCredentialsChanged();
+    const newRead = readCredentialRows(["openai"]);
+    await vi.waitFor(() => expect(integration.connection.active).toHaveBeenCalledTimes(2));
+    old.resolve({ type: "oauth", access: "old" });
+    expect((await oldRead)[0]?.value.access).toBe("old");
+    const sharedRead = readCredentialRows(["openai"], { firstOnly: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(integration.connection.resolve).toHaveBeenCalledTimes(2);
+    current.resolve({ type: "oauth", access: "current" });
+    expect((await newRead)[0]?.value.access).toBe("current");
+    expect((await sharedRead)[0]?.value.access).toBe("current");
+  });
+
   it("reports an empty resolve as a failed login", async () => {
     const integration = bindFakeIntegration([keyCredential("deepseek", "cred_deepseek")]);
     integration.connection.resolve.mockResolvedValueOnce(undefined);
