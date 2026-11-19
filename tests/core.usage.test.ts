@@ -13,7 +13,7 @@ import {
   withProviderNames,
 } from "../src/core/usage.js";
 import { usePricingSettings } from "../src/lib/modelsdev-pricing.js";
-import { resolveSessionTree } from "../src/lib/opencode-storage.js";
+import * as storage from "../src/lib/opencode-storage.js";
 import {
   type SessionDatabaseMessage,
   type SessionDatabaseSession,
@@ -487,7 +487,7 @@ describe("usage report sessions", () => {
       ],
     );
 
-    await expect(resolveSessionTree("ses_root")).resolves.toEqual([
+    await expect(storage.resolveSessionTree("ses_root")).resolves.toEqual([
       "ses_root",
       "ses_child_a",
       "ses_grandchild",
@@ -994,6 +994,91 @@ describe("usage report provider names", () => {
 });
 
 describe("usage report price list", () => {
+  it("isolates location prices and refreshes the report cache when prices change", async () => {
+    writeHistory([message({ created: at(0, 8), tokens: { input: M } })]);
+    const a = join(root, "a");
+    const b = join(root, "b");
+    const setPrice = async (directory: string, input: number) => {
+      await mkdir(directory, { recursive: true });
+      await writeFile(
+        join(directory, "opencode.jsonc"),
+        JSON.stringify({
+          providers: { anthropic: { models: { "claude-test": { cost: { input, output: 10 } } } } },
+        }),
+      );
+    };
+    await Promise.all([setPrice(a, 3), setPrice(b, 7)]);
+    const query = { range: "today" as const };
+    const [first, other] = await Promise.all([
+      usageReport(query, NOW, { directory: a }),
+      usageReport(query, NOW, { directory: b }),
+    ]);
+    expect([first.totals.costUsd, other.totals.costUsd]).toEqual([3, 7]);
+    expect(await usageReport(query, NOW + 1, { directory: a })).toBe(first);
+    // A different path and key order with the same prices reuse the report.
+    const same = join(root, "same-prices");
+    await mkdir(same);
+    await writeFile(
+      join(same, "opencode.json"),
+      JSON.stringify({
+        providers: {
+          anthropic: { models: { "claude-test": { cost: { output: 10, input: 3 } } } },
+        },
+      }),
+    );
+    expect(await usageReport(query, NOW + 1, { directory: same })).toBe(first);
+    await setPrice(a, 9);
+    expect((await usageReport(query, NOW + 2, { directory: a })).totals.costUsd).toBe(9);
+    expect(await usageReport(query, NOW + 2, { directory: b })).toBe(other);
+  });
+
+  it("keeps one configured snapshot across pages while another report reads changed prices", async () => {
+    writeHistory([message({ created: at(0, 8), tokens: { input: M } })]);
+    const configPath = join(root, "opencode.jsonc");
+    const setPrice = (input: number) =>
+      writeFile(
+        configPath,
+        JSON.stringify({
+          providers: { anthropic: { models: { "claude-test": { cost: { input, output: 10 } } } } },
+        }),
+      );
+    await setPrice(3);
+    const paused = Promise.withResolvers<void>();
+    const secondPaused = Promise.withResolvers<void>();
+    const resumed = Promise.withResolvers<void>();
+    let reportCount = 0;
+    const row = {
+      id: "one",
+      sessionID: "ses_main",
+      role: "assistant",
+      providerID: "anthropic",
+      modelID: "claude-test",
+      time: { created: at(0, 8) },
+      tokens: { input: M, output: 0, cache: { read: 0, write: 0 } },
+    };
+    const pages = vi.spyOn(storage, "readUsageMessagePages").mockImplementation(async function* () {
+      const report = ++reportCount;
+      yield [row];
+      (report === 1 ? paused : secondPaused).resolve();
+      await resumed.promise;
+      yield [{ ...row, id: "two" }];
+    });
+    try {
+      const first = usageReport({ range: "today" }, NOW, { directory: root });
+      await paused.promise;
+      await setPrice(9);
+      const changed = usageReport({ range: "today" }, NOW, { directory: root });
+      // Both reports have priced their first page before either can read the second.
+      await secondPaused.promise;
+      resumed.resolve();
+      const reports = await Promise.all([first, changed]);
+      expect(reports.map((report) => report.totals.costUsd)).toEqual([6, 18]);
+    } finally {
+      resumed.resolve();
+      pages.mockRestore();
+    }
+  });
+
   it("prices with the configured price list", async () => {
     writeHistory([message({ created: at(0, 8), tokens: { input: M } })]);
 

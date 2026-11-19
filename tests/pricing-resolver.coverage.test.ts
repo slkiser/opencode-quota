@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { CURSOR_MODEL_COSTS } from "../.github/scripts/upstream-plugins/cursor-opencode-provider/dist/pricing-data.js";
 import {
@@ -6,7 +8,9 @@ import {
   resolveCursorModel,
 } from "../src/lib/cursor-pricing.js";
 import { lookupCost, usePricingSettings } from "../src/lib/modelsdev-pricing.js";
+import { loadConfiguredUsagePrices } from "../src/lib/opencode-usage-pricing.js";
 import { priceMessage, resolvePricingKey } from "../src/lib/pricing-key.js";
+import { useOpencodeFolders } from "./helpers/opencode-folders.js";
 import { SHIPPED_PRICE_LIST } from "./helpers/shipped-price-list.js";
 
 // Price not confirmed, so these stay unknown: models.dev rates differ from Cursor's for the
@@ -279,4 +283,134 @@ describe("priceMessage", () => {
       kind: "unknown",
     });
   });
+});
+
+describe("configured Usage prices", () => {
+  const folders = useOpencodeFolders();
+  const directory = join(folders.root, "repo", "app");
+  const configPath = join(directory, "opencode.jsonc");
+  const source = { providerID: "team-gateway", modelID: "demo/model" };
+  const cost = { input: 2, output: 6, cache: { read: 0.5, write: 0 } };
+  const tokens = {
+    input: 1_000_000,
+    output: 100_000,
+    reasoning: 50_000,
+    cache_read: 2_000_000,
+    cache_write: 100_000,
+  };
+  const config = (value: unknown) => ({
+    providers: {
+      "team-gateway": { models: { "demo/model": { modelID: "wire-model", cost: value } } },
+    },
+  });
+  function writeConfig(path: string, value: unknown): void {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(value));
+  }
+
+  it("overrides a cached catalog hit without changing another provider or the catalog baseline", async () => {
+    usePricingSettings(() => ({ source: "bundled", autoRefreshDays: 7 }));
+    const official = { providerID: "openai", modelID: "gpt-5" };
+    const other = { providerID: "github-copilot", modelID: "gpt-5" };
+    const catalog = priceMessage(official, tokens);
+    const otherCatalog = priceMessage(other, tokens);
+    expect(catalog.kind).toBe("priced");
+    writeConfig(configPath, { providers: { openai: { models: { "gpt-5": { cost } } } } });
+    const configuredPrices = await loadConfiguredUsagePrices(directory);
+    expect(priceMessage(official, tokens, { configuredPrices })).toMatchObject({
+      kind: "priced",
+      usd: expect.closeTo(3.9, 9),
+    });
+    expect(priceMessage(other, tokens, { configuredPrices })).toEqual(otherCatalog);
+    expect(priceMessage(official, tokens)).toEqual(catalog);
+  });
+
+  it.each([
+    { providerID: "team-gateway", modelID: "demo/model", configured: true },
+    { providerID: "Team-Gateway", modelID: "demo/model", configured: false },
+    { providerID: "team-gateway", modelID: "Demo/model", configured: false },
+    { providerID: "team-gateway", modelID: "wire-model", configured: false },
+  ])(
+    "joins only the exact local tuple $providerID/$modelID",
+    async ({ providerID, modelID, configured }) => {
+      writeConfig(configPath, config(cost));
+      const configuredPrices = await loadConfiguredUsagePrices(directory);
+      const original = { providerID, modelID };
+      expect(priceMessage(original, tokens, { configuredPrices })).toEqual(
+        configured
+          ? expect.objectContaining({
+              kind: "priced",
+              key: { provider: providerID, model: modelID },
+            })
+          : priceMessage(original, tokens),
+      );
+    },
+  );
+
+  it.each([
+    { cost: { input: 0, output: 0 }, usd: 0, savings: 0 },
+    { cost: { input: 2, output: 6 }, usd: 2.9, savings: 4 },
+  ])("keeps zero and missing cache prices explicit ($usd USD)", async (item) => {
+    writeConfig(configPath, config(item.cost));
+    const configuredPrices = await loadConfiguredUsagePrices(directory);
+    expect(priceMessage(source, tokens, { configuredPrices })).toMatchObject({
+      kind: "priced",
+      usd: expect.closeTo(item.usd, 9),
+      cacheSavingsUsd: item.savings,
+      byKind: {
+        reasoning: expect.closeTo((tokens.reasoning * item.cost.output) / 1_000_000, 12),
+        cache_read: 0,
+        cache_write: 0,
+      },
+    });
+  });
+
+  it.each([
+    { label: "[]", cost: [] },
+    {
+      label: "no matching tier or base",
+      cost: [{ ...cost, tier: { type: "context", size: 4_000_000 } }],
+    },
+  ])("keeps $label unpriced despite catalog and model-map prices", async (item) => {
+    usePricingSettings(() => ({ source: "bundled", autoRefreshDays: 7 }));
+    const official = { providerID: "openai", modelID: "gpt-5" };
+    expect(priceMessage(official, tokens).kind).toBe("priced");
+    writeConfig(configPath, {
+      providers: { openai: { models: { "gpt-5": { cost: item.cost } } } },
+    });
+    const configuredPrices = await loadConfiguredUsagePrices(directory);
+    expect(
+      priceMessage(official, tokens, {
+        configuredPrices,
+        modelMap: { "gpt-5": "anthropic/claude-opus-4-5" },
+      }),
+    ).toEqual({ kind: "unpriced", key: { provider: "openai", model: "gpt-5" } });
+  });
+
+  it.each([
+    { prompt: 99, inputRate: 2, outputRate: 3 },
+    { prompt: 100, inputRate: 2, outputRate: 3 },
+    { prompt: 101, inputRate: 10, outputRate: 0 },
+    { prompt: 201, inputRate: 20, outputRate: 0 },
+  ])(
+    "uses the first largest strictly exceeded tier at $prompt tokens including caches",
+    async ({ prompt, inputRate, outputRate }) => {
+      writeConfig(
+        configPath,
+        config([
+          { input: 20, output: 0, tier: { type: "context", size: 200 } },
+          { input: 2, output: 3 },
+          { input: 10, output: 0, tier: { type: "context", size: 100 } },
+          { input: 999, output: 0, tier: { type: "context", size: 200 } },
+          { input: 777, output: 999 },
+        ]),
+      );
+      const configuredPrices = await loadConfiguredUsagePrices(directory);
+      const tierTokens = { ...tokens, input: prompt - 50, cache_read: 30, cache_write: 20 };
+      expect(priceMessage(source, tierTokens, { configuredPrices })).toMatchObject({
+        kind: "priced",
+        usd: expect.closeTo((tierTokens.input * inputRate) / 1_000_000 + 0.15 * outputRate, 12),
+      });
+    },
+  );
 });

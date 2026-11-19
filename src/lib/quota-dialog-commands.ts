@@ -205,9 +205,9 @@ async function checkKnownProviders(
 }
 
 /** The last 30 days of usage, for the models without a price; null when it can't be read. */
-async function readRecentUsage(nowMs: number): Promise<UsageReport | null> {
+async function readRecentUsage(nowMs: number, directory: string): Promise<UsageReport | null> {
   try {
-    return await usageReport({ range: "30d" }, nowMs);
+    return await usageReport({ range: "30d" }, nowMs, { directory });
   } catch {
     return null;
   }
@@ -240,12 +240,12 @@ export async function statusReport(
 
   const ctx = providerContext(held, loaded, options.sessionModel);
   const { enabledProviders, automaticDiscovery, quotaProviders } = ctx.config;
-  const [{ checks, snapshots }, usage] = await Promise.all([
-    withOpenCodeConfigReadScope(() =>
+  const [{ checks, snapshots }, usage] = await withOpenCodeConfigReadScope(() =>
+    Promise.all([
       checkKnownProviders(held, ctx, options.onlyProviderId, options.sessionModel),
-    ),
-    readRecentUsage(options.nowMs),
-  ]);
+      readRecentUsage(options.nowMs, host.locationDirectory),
+    ]),
+  );
   const currentModel = options.sessionModel?.id;
   const currentProviderID = options.sessionModel?.providerID;
   const availability = checks.map(({ provider, enabled, available }) => ({

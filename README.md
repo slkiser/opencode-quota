@@ -89,6 +89,8 @@ Add the plugin to `opencode.jsonc` or `opencode.json`, and keep your other plugi
 
 For example `/quota_usage 30d` or `/quota_usage between 2026-09-01 2026-09-25`. In a terminal, with OpenCode open or closed, `npx @slkiser/opencode-quota@latest show` shows your quota and `npx @slkiser/opencode-quota@latest status` checks your setup ([how they differ](docs/readme/troubleshooting.md#terminal-commands)). Add `--help` to see all options.
 
+The Usage report (`/quota_usage`, the Usage tab, and `unpriced_30d` in `/quota_status`) prefers explicit `providers.<provider>.models.<model>.cost` from local OpenCode JSON/JSONC files over the automatic models.dev/Cursor match. These current-location prices apply to all displayed history, not historical bills. Without explicit costs, automatic matching applies; local-estimate budgets and Cursor estimates use automatic matching, not configured Usage prices. Remote/managed/inline configuration, plugin-only prices and env/file substitutions are not read.
+
 ## Settings
 
 - Change settings in `/quota_settings` (TUI) or the Quota page in Desktop's settings. Both save to `opencode-quota/settings.jsonc` in OpenCode's config folder and keep your comments.
