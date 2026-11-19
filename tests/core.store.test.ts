@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { writeSavedState } from "../src/core/persist.js";
 import {
   createQuotaStore,
+  type CheckForExport,
   type ProviderFetch,
   type ProviderIdentity,
   type QuotaStore,
@@ -429,6 +430,77 @@ describe("quota store", () => {
     expect(only(snapshot).rows).toEqual([]);
     expect(only(snapshot)).not.toHaveProperty("error");
     expect(only(snapshot).okAtMs).toBe(clock);
+  });
+
+  it.each([
+    { name: "success", rows: [row("allowance", 30)], replaces: true },
+    { name: "authoritative empty", rows: [], empty: true, replaces: true },
+    { name: "unmarked empty", rows: [], code: "no_data", replaces: false },
+    { name: "partial", rows: [row("allowance", 30)], error: true, replaces: true },
+    { name: "failure", rows: [], error: true, replaces: false },
+    { name: "empty with error", rows: [], empty: true, error: true, replaces: false },
+    { name: "empty with rows", rows: [row("allowance", 30)], empty: true, replaces: true },
+    {
+      name: "empty with rows and error",
+      rows: [row("allowance", 30)],
+      empty: true,
+      error: true,
+      replaces: true,
+    },
+  ])("records $name with its check rows, timestamps and backoff", async (answer) => {
+    const copilot = fakeProvider();
+    const store = makeStore([copilot.provider], 0, null);
+    await store.refresh({ reason: "manual" });
+    clock += MINUTE;
+    const error = answer.error ? { code: "network" as const } : undefined;
+    const buildExportPart = vi.fn((_check: CheckForExport) => ({ status: "unavailable" as const }));
+    copilot.fetch.mockResolvedValue({
+      rows: answer.rows,
+      ...(answer.empty ? { empty: true } : {}),
+      ...(error ? { error } : {}),
+      debug: [],
+      buildExportPart,
+    });
+
+    const snapshot = only(await store.refresh({ reason: "poll" }));
+    const recordedError = error ?? (answer.code ? { code: answer.code } : undefined);
+    expect(snapshot.rows).toEqual(answer.replaces ? answer.rows : [row("allowance", 50)]);
+    expect(snapshot.okAtMs).toBe(answer.replaces ? clock : START_MS);
+    expect(snapshot.checkedAtMs).toBe(clock);
+    expect(snapshot.error).toEqual(recordedError);
+    expect(buildExportPart).toHaveBeenCalledExactlyOnceWith({
+      rows: answer.rows,
+      ...(recordedError ? { error: recordedError } : {}),
+      checkedAtMs: clock,
+    });
+    clock += 30 * SECOND;
+    await store.refresh({ reason: "poll" });
+    expect(copilot.fetch).toHaveBeenCalledTimes(recordedError ? 2 : 3);
+  });
+
+  it("exports only a partial check's fresh rows with their retained-login numbering", async () => {
+    const copilot = fakeProvider();
+    copilot.fetch.mockResolvedValue({
+      ...ok([row("allowance", 50, { account: "Pro" }), row("allowance", 40, { account: "Pro" })]),
+      rowLogins: ["first", "second"],
+    });
+    const store = makeStore([copilot.provider], 0, null);
+    const before = only(await store.refresh({ reason: "manual" })).rows;
+    const buildExportPart = vi.fn((_check: CheckForExport) => ({ status: "unavailable" as const }));
+    clock += MINUTE;
+    copilot.fetch.mockResolvedValue({
+      ...ok([row("allowance", 30, { account: "Pro" })]),
+      rowLogins: ["second"],
+      error: { code: "login_expired" },
+      buildExportPart,
+    });
+    const after = only(await store.refresh({ reason: "manual" }));
+    expect(after.rows).toHaveLength(2);
+    expect(buildExportPart).toHaveBeenCalledExactlyOnceWith({
+      rows: [row("allowance", 30, { account: before[1]?.account })],
+      error: { code: "login_expired" },
+      checkedAtMs: clock,
+    });
   });
 
   it("shows rows only to the account that fetched them", async () => {
