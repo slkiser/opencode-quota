@@ -27,12 +27,12 @@ import {
   untrack,
 } from "solid-js";
 import { Portal } from "solid-js/web";
-import type { UsageQuery, UsageReport } from "../core/usage.js";
-import { rpcErrorMessage } from "../tui/client.js";
+import type { UsageQuery } from "../core/usage.js";
 import { rangeDates } from "../view/usage.js";
 import type { GuiQuota } from "./bridge.js";
 import { displayOf, limitProviders } from "./limits-model.js";
 import { LimitsView } from "./limits-view.js";
+import { type Answered, createUsageAnswers } from "./usage-answers.js";
 import {
   type UsageMode,
   usageProviders,
@@ -50,10 +50,6 @@ const VIEWS: readonly WindowView[] = ["cost", "tokens", "limits"];
 const SCOPES: readonly UsageScope[] = ["all", "session", "tree"];
 /** How often the window updates the times it shows ("Checked 2m ago", reset times). */
 const CLOCK_MS = 30_000;
-
-/** The last report, with the range and sessions it was asked for (its label). */
-type Answered = { report: UsageReport; range: WindowRange; scope: UsageScope };
-type UsageState = { answered?: Answered; loading: boolean; error?: string };
 
 type WindowProps = {
   ctx: Context;
@@ -89,7 +85,8 @@ export function UsageWindow(props: WindowProps) {
   const [nowMs, setNowMs] = createSignal(Date.now());
   const [reloads, setReloads] = createSignal(0);
   const [refreshing, setRefreshing] = createSignal(false);
-  const [usage, setUsage] = createSignal<UsageState>({ loading: false });
+  const answers = createUsageAnswers(data);
+  const usage = answers.usage;
 
   const clock = setInterval(() => setNowMs(Date.now()), CLOCK_MS);
   onCleanup(() => clearInterval(clock));
@@ -123,29 +120,14 @@ export function UsageWindow(props: WindowProps) {
     undefined,
     { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) },
   );
-  // Numbers every question, so an answer to an older one is dropped.
-  let asked = 0;
   createEffect(() => {
     const current = query();
     // The window's own folder: the session's, for a window opened for one session.
     const directory = props.directory();
     reloads();
-    if (!current) return;
-    const call = ++asked;
-    const asking = { range: untrack(range), scope: untrack(scope) };
-    setUsage((previous) => ({ answered: previous.answered, loading: true }));
-    data.usage(current, directory).then(
-      (report) => {
-        if (call === asked) setUsage({ answered: { report, ...asking }, loading: false });
-      },
-      (error: unknown) => {
-        if (call === asked) setUsage({ loading: false, error: rpcErrorMessage(error) });
-      },
-    );
+    answers.ask(current, directory, { range: untrack(range), scope: untrack(scope) });
   });
-  onCleanup(() => {
-    asked += 1;
-  });
+  onCleanup(answers.stop);
 
   /** The providers the filter lists for the view on screen: [id, name]. */
   const providers = (): Array<[string, string]> => {
