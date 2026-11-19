@@ -39,7 +39,18 @@ const ANTHROPIC_OAUTH_REUSE_MS = 60_000;
 const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const ANTHROPIC_BETA_HEADER = "oauth-2025-04-20";
 const CLAUDE_CODE_CREDENTIALS_SERVICE = "Claude Code-credentials";
-const CLAUDE_KEYCHAIN_LOCATION = `macOS Keychain service ${CLAUDE_CODE_CREDENTIALS_SERVICE}`;
+
+function claudeConfigDir(): string | null {
+  return process.env.CLAUDE_CONFIG_DIR?.trim() || null;
+}
+
+/** Claude Code suffixes its Keychain service with sha256(CLAUDE_CONFIG_DIR)[:8] when that is set. */
+function claudeCredentialsService(): string {
+  const dir = claudeConfigDir();
+  if (!dir) return CLAUDE_CODE_CREDENTIALS_SERVICE;
+  const suffix = createHash("sha256").update(dir).digest("hex").slice(0, 8);
+  return `${CLAUDE_CODE_CREDENTIALS_SERVICE}-${suffix}`;
+}
 const CLAUDE_NOT_AUTHENTICATED_MESSAGE =
   "Claude is not authenticated. Run `claude auth login` and try again.";
 const CLAUDE_NO_LOCAL_QUOTA_MESSAGE =
@@ -547,23 +558,23 @@ async function runCommand(
 async function readClaudeCredentialsFromMacOSKeychain(): Promise<ClaudeCredentialSourceResult | null> {
   if (process.platform !== "darwin") return null;
 
-  const result = await runCommand("security", [
-    "find-generic-password",
-    "-s",
-    CLAUDE_CODE_CREDENTIALS_SERVICE,
-    "-w",
-  ]);
-  if (result.code !== 0) return { state: "not-found", location: CLAUDE_KEYCHAIN_LOCATION };
+  const service = claudeCredentialsService();
+  const location = `macOS Keychain service ${service}`;
+  const result = await runCommand("security", ["find-generic-password", "-s", service, "-w"]);
+  if (result.code !== 0) return { state: "not-found", location };
 
   return parseClaudeCredentials(result.stdout, {
-    location: CLAUDE_KEYCHAIN_LOCATION,
-    parseFailureLabel: `Claude OAuth credentials from ${CLAUDE_KEYCHAIN_LOCATION}`,
+    location,
+    parseFailureLabel: `Claude OAuth credentials from ${location}`,
     allowPlainText: true,
   });
 }
 
 async function readClaudeCredentialsFromFile(): Promise<ClaudeCredentialSourceResult> {
-  const credentialsPath = join(homedir(), ".claude", ".credentials.json");
+  const credentialsPath = join(
+    claudeConfigDir() ?? join(homedir(), ".claude"),
+    ".credentials.json",
+  );
   const location = sanitizeDisplayText(credentialsPath);
 
   let content: string;
