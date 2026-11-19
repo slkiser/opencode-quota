@@ -26,11 +26,15 @@ import {
  */
 type LiveSettingsChange = { recheck: boolean; oldCommands: boolean };
 
+type ConversionState = { state: "not-converted" } | { state: "converted"; atMs: number };
+
+const CONVERSION_NOTICE_DURATION_MS = 10 * 60_000;
+
 export type LiveSettings = {
   /** What converting the v5 settings at the start did; undefined when it had nothing to do. */
   readonly conversion: V5Conversion | undefined;
   current(): LoadedSettings;
-  /** True once this server wrote the v5 settings into settings.jsonc, at the start or by a save. */
+  /** True for ten minutes after this server wrote v5 settings, at the start or by a save. */
   converted(): boolean;
   /** `saveSettings`, then the file is read again and held, before this resolves. */
   save(patch: unknown, options: Parameters<typeof saveSettings>[1]): Promise<SaveResult>;
@@ -80,7 +84,9 @@ export async function createLiveSettings({
     console.warn(`[opencode-quota] settings conversion failed: ${safeErrorText(error)}`);
     return undefined;
   });
-  let converted = conversion?.written ?? false;
+  let conversionState: ConversionState = conversion?.written
+    ? { state: "converted", atMs: Date.now() }
+    : { state: "not-converted" };
   let current = await loadSettings({ projectDir });
   // Local estimates and usage reports use the price list of the settings held now.
   const unbindPricingSettings = usePricingSettings(() => current.settings.providers.pricing);
@@ -104,7 +110,9 @@ export async function createLiveSettings({
     const result = await write();
     if (result.ok) {
       const next = await loadSettings({ projectDir });
-      if (converting && next.exists) converted = true;
+      if (converting && next.exists && conversionState.state === "not-converted") {
+        conversionState = { state: "converted", atMs: Date.now() };
+      }
       await hold(next);
     }
     return result;
@@ -113,7 +121,9 @@ export async function createLiveSettings({
   return {
     conversion,
     current: () => current,
-    converted: () => converted,
+    converted: () =>
+      conversionState.state === "converted" &&
+      Date.now() - conversionState.atMs < CONVERSION_NOTICE_DURATION_MS,
     save: (patch, saveOptions) => written(() => saveSettings(patch, saveOptions)),
     edit: (...args) => written(() => editSettings(...args)),
     editFile: (...args) => written(() => editSettingsFile(...args)),
