@@ -17,7 +17,12 @@ import {
   type Level,
 } from "../view/format.js";
 import { errorWords, type Place, type RowFacts, rowFacts } from "../view/row-facts.js";
-import { type RowSettings, type SurfaceRows, visibleGroups } from "../view/select.js";
+import {
+  type RowSettings,
+  servesCurrentModel,
+  type SurfaceRows,
+  visibleGroups,
+} from "../view/select.js";
 
 /** The settings the usage window reads, from the snapshot's settings, else their defaults. */
 export type GuiDisplay = {
@@ -140,7 +145,6 @@ export function limitCards(
     evenUse: display.evenUse,
     pace: "all",
   };
-  const current = new Set(snapshot.currentModelProviderIds ?? []);
   return visibleGroups(snapshot, rows, "sidebar", words)
     .filter((group) => providerId === undefined || group.providerId === providerId)
     .map((group) => {
@@ -156,7 +160,7 @@ export function limitCards(
         ...(group.account === undefined ? {} : { account: group.account }),
         ...(error === undefined ? {} : { error }),
         ...(checked === undefined ? {} : { checked }),
-        current: current.has(group.providerId),
+        current: servesCurrentModel(snapshot, group),
         rows: group.rows.map((item) => {
           const facts = rowFacts(item, group, place);
           if (facts.percent === undefined) return facts;

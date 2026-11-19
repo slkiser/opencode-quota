@@ -791,7 +791,7 @@ describe("server quota RPC", () => {
     });
   });
 
-  it.each(["claude-code", "claude-agent"])(
+  it.each(["claude-code", "claude-agent", "claude-code-default", "claude-code-work"])(
     "declares only providers OpenCode lists, never the canonical id of the %s alias",
     async (alias) => {
       useSettings({ providers: { off: [] } });

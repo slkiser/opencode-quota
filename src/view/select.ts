@@ -150,6 +150,23 @@ export function visibleGroups(
 }
 
 /**
+ * The group serves the session's current model: its provider does, and for the provider of the
+ * model's account (`currentModelAccount`) it is that account's group or one tied to no account.
+ */
+export function servesCurrentModel(
+  snapshot: Pick<QuotaSnapshot, "currentModelProviderIds" | "currentModelAccount">,
+  group: Pick<Group, "providerId" | "account">,
+): boolean {
+  const account = snapshot.currentModelAccount;
+  return (
+    (snapshot.currentModelProviderIds ?? []).includes(group.providerId) &&
+    (account?.providerId !== group.providerId ||
+      group.account === undefined ||
+      group.account === account.account)
+  );
+}
+
+/**
  * The window a group shows in the collapsed sidebar or the status line, and the one its Settings
  * ‹ › shows: its provider's own pick; else the pick for all providers when one of its rows with a
  * percent has that window; else "lowest" (where `pickRow` would fall back anyway).

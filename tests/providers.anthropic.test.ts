@@ -4,9 +4,9 @@
  * file are never reached: every fake CLI either reports quota or is signed out.
  */
 
-import { chmodSync, existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { clearAnthropicDiagnosticsCacheForTests } from "../src/lib/anthropic.js";
 import {
@@ -322,6 +322,9 @@ describe("anthropic provider", () => {
     ["claude-code/claude-opus-5-5", true],
     ["CLAUDE-CODE/claude-sonnet-5-5", true],
     ["claude-agent/opus", true],
+    ["claude-code-default/claude-sonnet-5-5", true],
+    ["claude-code-work/claude-sonnet-5-5@work", true],
+    ["claude-code-/claude-sonnet-5-5", false],
     ["openai/gpt-5", false],
     ["copilot/claude-sonnet-4-5", false],
   ])("matches model id %s: %s", (model, expected) => {
@@ -354,4 +357,287 @@ describe("anthropic provider", () => {
 
     await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(false);
   });
+});
+
+describe("Claude Code plugin account readings", () => {
+  const now = Date.parse("2026-11-10T12:00:00.000Z");
+  const hour = 3_600_000;
+  const reading = (utilization: number | null, resetsAt = now + hour, observedAt = now - 1000) => ({
+    utilization,
+    resetsAt,
+    observedAt,
+    status: "allowed",
+    noted: [],
+  });
+  const usage = () => ({
+    version: 1,
+    accounts: {
+      default: { five_hour: reading(0.2), seven_day: reading(0.4, now + 7 * 24 * hour) },
+      work: { five_hour: reading(0.7), seven_day: { ...reading(null), status: "rejected" } },
+      historical: { five_hour: reading(0.1) },
+    },
+    known: { historical: { at: now } },
+    logins: { historical: { expiresAt: now + hour } },
+  });
+  const usagePath = () =>
+    join(process.env.XDG_STATE_HOME!, "opencode-claude-code-plugin", "account-usage.json");
+  const writeUsage = (content: unknown, path = usagePath()) => {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, typeof content === "string" ? content : JSON.stringify(content));
+  };
+  const context = (
+    currentProviderID = "claude-code-work",
+    providerIds = ["claude-code-default", "claude-code-work", "openai"],
+  ) =>
+    createProviderAvailabilityContext({
+      providerIds,
+      configOverrides: {
+        currentProviderID,
+        anthropicBinaryPath: missingClaude(),
+      },
+    });
+  const fetchPluginRows = (ctx = context()) =>
+    fetchRows({ id: "anthropic", fetch: () => anthropicProvider.fetch(ctx) });
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it.each(["claude-code-work", "openai"])(
+    "shows only configured named accounts when %s is selected",
+    async (selected) => {
+      writeUsage(usage());
+      const http = fakeHttp(() => ({}));
+      const readRows = vi.fn(async () => {
+        throw new Error("must not read credentials");
+      });
+      const unbind = bindCredentialSource({ kind: "opencode-integration-api", readRows });
+      try {
+        const ctx = context(selected);
+        await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
+        const policy = anthropicProvider.cachePolicy;
+        if (policy.kind !== "resolved-auth") throw new Error("wrong cache policy");
+        await policy.resolveIdentity(ctx, {});
+        const scope = await policy.resolveScope?.(ctx);
+        expect(scope).not.toBe("claude-code");
+        expect(scope).not.toBe("opencode-auth");
+        const fetched = await fetchPluginRows(ctx);
+        expect(
+          fetched.rows.map((row) => [row.id, row.account, row.percentRemaining, row.text]),
+        ).toEqual([
+          ["anthropic.five_hour", "Default", 80, undefined],
+          ["anthropic.weekly", "Default", 60, undefined],
+          ["anthropic.five_hour", "Work", 30, undefined],
+          ["anthropic.weekly", "Work", 0, undefined],
+        ]);
+        expect(fetched.rows[0]).toMatchObject({
+          method: "local_cli",
+          authority: "provider_reported",
+        });
+        expect(readRows).not.toHaveBeenCalled();
+        expect(http).not.toHaveBeenCalled();
+      } finally {
+        unbind();
+      }
+    },
+  );
+
+  it.runIf(POSIX)(
+    "does not start Claude for availability, identity or reading plugin data",
+    async () => {
+      writeUsage(usage());
+      const claude = fakeClaude(CLI_QUOTA);
+      const ctx = context();
+      ctx.config.anthropicBinaryPath = claude.path;
+      await anthropicProvider.isAvailable(ctx);
+      if (anthropicProvider.cachePolicy.kind === "resolved-auth") {
+        await anthropicProvider.cachePolicy.resolveIdentity(ctx, {});
+      }
+      await fetchPluginRows(ctx);
+      expect(claude.runs()).toEqual([]);
+    },
+  );
+
+  it.each(["openai", undefined])(
+    "keeps a listed anthropic login's quota when %s is selected",
+    async (selected) => {
+      writeUsage(usage());
+      world.storeLogins([claudeLogin("legacy")]);
+      fakeHttp(() => noWeeklyLimitUsage);
+      const ctx = createProviderAvailabilityContext({
+        providerIds: ["anthropic", "claude-code-default", "claude-code-work", "openai"],
+        configOverrides: {
+          ...(selected ? { currentProviderID: selected } : {}),
+          anthropicBinaryPath: missingClaude(),
+        },
+      });
+      await expect(anthropicProvider.isAvailable(ctx)).resolves.toBe(true);
+      const fetched = await fetchPluginRows(ctx);
+      expect(fetched.rows.length).toBeGreaterThan(0);
+      expect(fetched.rows.every((row) => row.account === "legacy")).toBe(true);
+      expect(fetched.debug).toContainEqual({
+        key: "quota_source",
+        value: "opencode-auth-oauth-api",
+      });
+      await expect(anthropicProvider.usageAccounts?.(ctx)).resolves.toBeUndefined();
+    },
+  );
+
+  it("shows named accounts over a listed anthropic login when a named account is selected", async () => {
+    writeUsage(usage());
+    world.storeLogins([claudeLogin("legacy")]);
+    const http = fakeHttp(() => ({}));
+    const ctx = context("claude-code-work", [
+      "anthropic",
+      "claude-code-default",
+      "claude-code-work",
+      "openai",
+    ]);
+    const fetched = await fetchPluginRows(ctx);
+    expect(fetched.rows.map((row) => row.account)).toEqual(["Default", "Default", "Work", "Work"]);
+    expect(http).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["is not listed", () => context("claude-code-gone", ["anthropic"])],
+    [
+      "cannot be listed",
+      () =>
+        createProviderAvailabilityContext({
+          providersError: new Error("boom"),
+          configOverrides: {
+            currentProviderID: "claude-code-work",
+            anthropicBinaryPath: missingClaude(),
+          },
+        }),
+    ],
+  ])("never falls back to stored logins when the selected named account %s", async (_, ctx) => {
+    world.storeLogins([claudeLogin("legacy")]);
+    const http = fakeHttp(() => ({}));
+    const selected = ctx();
+    await expect(anthropicProvider.isAvailable(selected)).resolves.toBe(false);
+    expect((await fetchPluginRows(selected)).rows).toEqual([]);
+    expect(http).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a future reading time", { observedAt: now + 1000 }],
+    ["a malformed status", { status: "Allowed!" }],
+    ["an invalid reset time", { resetsAt: "soon" }],
+    ["a missing utilization", { utilization: undefined, status: "rejected" }],
+    ["no utilization while allowed", { utilization: null }],
+  ])("ignores a reading with %s", async (_, change) => {
+    const data = usage();
+    Object.assign(data.accounts.default.five_hour, change);
+    writeUsage(data);
+    const rows = (await fetchPluginRows()).rows;
+    expect(rows.map((row) => [row.id, row.account])).toEqual([
+      ["anthropic.weekly", "Default"],
+      ["anthropic.five_hour", "Work"],
+      ["anthropic.weekly", "Work"],
+    ]);
+  });
+
+  it("names the account each OpenCode provider uses while plugin accounts show", async () => {
+    await expect(anthropicProvider.usageAccounts?.(context())).resolves.toEqual({
+      "claude-code-default": "Default",
+      "claude-code-work": "Work",
+      "claude-code": "Default",
+      "claude-agent": "Default",
+    });
+    await expect(
+      anthropicProvider.usageAccounts?.(
+        context("claude-agent", ["claude-agent", "claude-code-work"]),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("leaves the plugin's usage, login and warning state untouched", async () => {
+    writeUsage(usage());
+    const before = readFileSync(usagePath(), "utf8");
+    const ctx = context();
+    await anthropicProvider.isAvailable(ctx);
+    await fetchPluginRows(ctx);
+    expect(readFileSync(usagePath(), "utf8")).toBe(before);
+  });
+
+  it("changes scope with the path of the plugin's file", async () => {
+    const ctx = context();
+    const policy = anthropicProvider.cachePolicy;
+    if (policy.kind !== "resolved-auth") throw new Error("wrong cache policy");
+    const scope = await policy.resolveScope?.(ctx);
+    process.env.XDG_STATE_HOME = join(world.root, "other-state");
+    expect(await policy.resolveScope?.(ctx)).not.toBe(scope);
+  });
+
+  it("has no rows for missing, malformed or unsupported files, never a login fallback", async () => {
+    const ctx = context();
+    const http = fakeHttp(() => ({}));
+    world.storeLogins([claudeLogin("legacy")]);
+    for (const content of [undefined, "{", { ...usage(), version: 2 }]) {
+      if (content === undefined) rmSync(usagePath(), { force: true });
+      else writeUsage(content);
+      const fetched = await fetchPluginRows(ctx);
+      expect(fetched.rows).toEqual([]);
+      expect(fetched.error).toBeUndefined();
+      expect(fetched.debug).toContainEqual({
+        key: "quota_source",
+        value: "claude-code-plugin-account-usage",
+      });
+    }
+    expect(http).not.toHaveBeenCalled();
+  });
+
+  it("expires reset windows independently and bounds untimed and old readings", async () => {
+    const data = usage();
+    data.accounts.default.five_hour = reading(0.2, now);
+    data.accounts.work.five_hour = reading(0.3, now + hour, now - 9 * 24 * hour);
+    writeUsage(data);
+    expect(
+      (await fetchPluginRows()).rows.map((row) => [row.id, row.account, row.percentRemaining]),
+    ).toEqual([
+      ["anthropic.weekly", "Default", 60],
+      ["anthropic.weekly", "Work", 0],
+    ]);
+    writeUsage({
+      version: 1,
+      accounts: {
+        default: {
+          five_hour: { utilization: 0.1, observedAt: now - 5 * hour, status: "allowed" },
+          seven_day: { utilization: 0.2, observedAt: now - hour, status: "allowed" },
+        },
+      },
+    });
+    const rows = (await fetchPluginRows()).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: "anthropic.weekly", percentRemaining: 80 });
+  });
+
+  it("uses the producer's home-state fallback without reading real user state", async () => {
+    const home = join(world.root, "home");
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    delete process.env.XDG_STATE_HOME;
+    writeUsage(usage(), join(home, ".local/state/opencode-claude-code-plugin/account-usage.json"));
+    expect((await fetchPluginRows()).rows[0]?.percentRemaining).toBe(80);
+  });
+
+  it.runIf(POSIX)(
+    "keeps anthropic, claude-code and claude-agent selections on their own sources",
+    async () => {
+      writeUsage(usage());
+      world.storeLogins([claudeLogin("legacy")]);
+      fakeHttp(() => ({ five_hour: { utilization: 10 }, seven_day: { utilization: 20 } }));
+      const claude = fakeClaude(CLI_QUOTA);
+      for (const id of ["anthropic", "claude-code", "claude-agent"]) {
+        const ctx = context(id, [id, "claude-code-work"]);
+        ctx.config.anthropicBinaryPath = claude.path;
+        const fetched = await fetchPluginRows(ctx);
+        expect(fetched.rows[0]?.id, JSON.stringify(fetched)).toBe("anthropic.five_hour");
+        expect(fetched.rows[0]?.percentRemaining).toBe(id === "anthropic" ? 90 : 43);
+      }
+    },
+  );
 });

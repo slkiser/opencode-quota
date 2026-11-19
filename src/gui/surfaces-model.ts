@@ -32,7 +32,14 @@ import {
   retainedStatusBalance,
   rowFacts,
 } from "../view/row-facts.js";
-import { type Group, pickRow, statusGroups, visibleGroups, windowFor } from "../view/select.js";
+import {
+  type Group,
+  pickRow,
+  servesCurrentModel,
+  statusGroups,
+  visibleGroups,
+  windowFor,
+} from "../view/select.js";
 import {
   type ColorRole,
   lineText,
@@ -215,7 +222,7 @@ export function providerCounts(groups: readonly PickedGroup[]): {
 /**
  * The provider of the session's current model as the composer pill shows it: the first such
  * provider the status line shows, with the row its window setting picks, its percent with its
- * word, and every pace word.
+ * word, and every pace word: of a provider with accounts, the model's own (`servesCurrentModel`).
  * Undefined when the snapshot doesn't say which providers serve the model, or none of them shows.
  */
 export function currentModelPick(
@@ -223,11 +230,10 @@ export function currentModelPick(
   settings: Settings,
   nowMs: number,
 ): PickedGroup | undefined {
-  const current = snapshot.currentModelProviderIds;
-  if (!current || current.length === 0) return undefined;
+  if (!snapshot.currentModelProviderIds?.length) return undefined;
   const place = { percent: "words", pace: "all" } as const;
   return pickedGroups(snapshot, settings, "statusLine", nowMs, place).find((group) =>
-    current.includes(group.providerId),
+    servesCurrentModel(snapshot, group),
   );
 }
 

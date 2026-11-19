@@ -4,6 +4,7 @@ import {
   dedupeNonEmptyStrings,
   extractPluginSpecsFromParsedConfig,
   extractProviderIdsFromParsedConfig,
+  getPluginSpecFromEntry,
 } from "./config-file-utils.js";
 import { isRecord } from "./json-guards.js";
 import {
@@ -18,6 +19,7 @@ import {
   readOpenCodeConfigs,
 } from "./opencode-config-files.js";
 import {
+  claudeCodePluginProviderIds,
   getCanonicalQuotaProviderId,
   getQuotaProviderRuntimeIds,
   normalizeQuotaProviderId,
@@ -90,6 +92,48 @@ function inferProviderIdsFromPluginSpecs(specs: string[]): string[] {
   );
 }
 
+function claudeCodePluginOptions(config: Record<string, unknown>): Record<string, unknown> | null {
+  const entries = [config.plugin, config.plugins].flatMap((list) =>
+    Array.isArray(list) ? list : [],
+  );
+  let options: Record<string, unknown> | null = null;
+  for (const entry of entries) {
+    const spec = getPluginSpecFromEntry(entry);
+    if (!spec?.toLowerCase().includes("opencode-claude-code-plugin")) continue;
+    const entryOptions = Array.isArray(entry)
+      ? entry[1]
+      : isRecord(entry)
+        ? entry.options
+        : undefined;
+    options = isRecord(entryOptions) ? entryOptions : {};
+  }
+  return options;
+}
+
+/**
+ * The providers opencode-claude-code-plugin creates while OpenCode runs, read as the plugin
+ * reads its settings: its `claude-code` provider's options and settings, then its own options.
+ */
+function claudeCodePluginRuntimeIds(config: Record<string, unknown>): string[] {
+  const options = claudeCodePluginOptions(config);
+  if (!options) return [];
+  const seedOf = (key: string) => {
+    const providers = config[key];
+    return isRecord(providers) && isRecord(providers["claude-code"])
+      ? providers["claude-code"]
+      : {};
+  };
+  const provider = seedOf("provider");
+  const nativeProvider = seedOf("providers");
+  const settings = {
+    ...(isRecord(provider.options) ? provider.options : {}),
+    ...(isRecord(provider.settings) ? provider.settings : {}),
+    ...(isRecord(nativeProvider.settings) ? nativeProvider.settings : {}),
+    ...options,
+  };
+  return claudeCodePluginProviderIds(settings.accounts);
+}
+
 /** Every OpenCode config file that counts for `directory`, merged; see `mergeOpenCodeConfig`. */
 async function loadMergedOpenCodeConfig(directory: string): Promise<Record<string, unknown>> {
   let config: Record<string, unknown> = {};
@@ -102,10 +146,16 @@ async function loadMergedOpenCodeConfig(directory: string): Promise<Record<strin
 /** The providers the OpenCode config files that count for `directory` declare or imply. */
 export async function loadConfiguredProviderIds(directory: string): Promise<string[]> {
   const config = await loadMergedOpenCodeConfig(directory);
-  return dedupeNonEmptyStrings([
+  const claudeCodeIds = claudeCodePluginRuntimeIds(config);
+  const ids = dedupeNonEmptyStrings([
     ...extractProviderIdsFromParsedConfig(config),
     ...inferProviderIdsFromPluginSpecs(extractPluginSpecsFromParsedConfig(config)),
+    ...claudeCodeIds,
   ]);
+  // With accounts, the plugin replaces its `claude-code` provider with one per account.
+  return claudeCodeIds.includes("claude-code") || claudeCodeIds.length === 0
+    ? ids
+    : ids.filter((id) => id !== "claude-code");
 }
 
 function isDetectedProviderDeclared(

@@ -185,6 +185,69 @@ describe("quick look: short text", () => {
     );
   });
 
+  describe("with named Claude Code accounts", () => {
+    const anthropic = provider("anthropic", "Anthropic", [
+      row("anthropic.five_hour", { account: "Default", window: "five_hour", percentRemaining: 80 }),
+      row("anthropic.five_hour", { account: "My Team", window: "five_hour", percentRemaining: 30 }),
+    ]);
+    const named = {
+      ...snapshot([anthropic]),
+      providerAccounts: {
+        "claude-code-default": { providerId: "anthropic", account: "Default" },
+        "claude-code-my-team": { providerId: "anthropic", account: "My Team" },
+        "claude-code": { providerId: "anthropic", account: "Default" },
+        "claude-agent": { providerId: "anthropic", account: "Default" },
+      },
+    };
+
+    it("puts each account's limits on its own usage line", () => {
+      const lines = shortText({
+        snapshot: named,
+        usage: report([
+          usageRow("claude-code-default", 3, 1_000_000, 1),
+          usageRow("claude-code-my-team", 1, 500_000, 1),
+        ]),
+      }).split("\n");
+      expect(lines.slice(1)).toEqual([
+        "● Anthropic (Default)  5h 80% left  $3.00",
+        "● Anthropic (My Team)  5h 30% left  $1.00",
+      ]);
+    });
+
+    it("gives a costlier Claude Agent line only the account it shares a login with", () => {
+      const lines = shortText({
+        snapshot: named,
+        usage: report([
+          usageRow("claude-agent", 5, 2_000_000, 2),
+          usageRow("anthropic", 2, 1_000_000, 1),
+          usageRow("claude-code-my-team", 1, 500_000, 1),
+        ]),
+      }).split("\n");
+      expect(lines.slice(1)).toEqual([
+        "● Anthropic (Default)  5h 80% left  $5.00",
+        "● Anthropic            $2.00",
+        "● Anthropic (My Team)  5h 30% left  $1.00",
+      ]);
+    });
+
+    it("gives a named account's line no limits while Anthropic shows its OpenCode login", () => {
+      const login = provider("anthropic", "Anthropic", [
+        row("anthropic.five_hour", { account: "work", window: "five_hour", percentRemaining: 50 }),
+      ]);
+      const lines = shortText({
+        snapshot: snapshot([login]),
+        usage: report([
+          usageRow("claude-code-default", 3, 1_000_000, 1),
+          usageRow("anthropic", 2, 1_000_000, 1),
+        ]),
+      }).split("\n");
+      expect(lines.slice(1)).toEqual([
+        "● claude-code-default  $3.00",
+        "● Anthropic (work)     5h 50% left  $2.00",
+      ]);
+    });
+  });
+
   it("names a used provider without quota as OpenCode does, else by the plugin's label, else by its id", () => {
     const usage = {
       ...report([

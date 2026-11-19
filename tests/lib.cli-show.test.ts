@@ -9,6 +9,7 @@ import { answer, percentRow } from "./helpers/fake-answers.js";
 const { authMocks, mockProviders } = vi.hoisted(() => ({
   authMocks: {
     anthropicConfigured: false,
+    anthropicLogins: [] as unknown[],
     kimiGlobalState: "none" as "none" | "configured",
     kimiCnState: "none" as "none" | "configured",
   },
@@ -17,6 +18,7 @@ const { authMocks, mockProviders } = vi.hoisted(() => ({
 
 vi.mock("../src/lib/anthropic.js", () => ({
   hasAnthropicCredentialsConfigured: vi.fn(async () => authMocks.anthropicConfigured),
+  readAnthropicLogins: vi.fn(async () => authMocks.anthropicLogins),
 }));
 
 vi.mock("../src/lib/api-key-resolver.js", async (importOriginal) => {
@@ -98,6 +100,7 @@ function writeSettings(settings: Record<string, unknown>): void {
 
 beforeEach(() => {
   authMocks.anthropicConfigured = false;
+  authMocks.anthropicLogins = [];
   authMocks.kimiGlobalState = "none";
   authMocks.kimiCnState = "none";
   savedConfigDir = process.env.OPENCODE_CONFIG_DIR;
@@ -167,6 +170,104 @@ describe("createCliQuotaClient", () => {
       unbind();
     }
   });
+
+  it.each([
+    [
+      "the plugin's own accounts option",
+      {
+        plugin: [
+          {
+            package: "@khalilgharbaoui/opencode-claude-code-plugin",
+            options: { accounts: ["Eng", "My Team", "eng"] },
+          },
+        ],
+        provider: { "claude-code": { options: { cliPath: "claude" } } },
+      },
+      ["claude-code-default", "claude-code-eng", "claude-code-my-team"],
+    ],
+    [
+      "its provider's accounts option",
+      {
+        plugin: ["@khalilgharbaoui/opencode-claude-code-plugin@latest"],
+        provider: { "claude-code": { options: { accounts: ["work"] } } },
+      },
+      ["claude-code-default", "claude-code-work"],
+    ],
+    [
+      "the plugin's own accounts option over its provider's",
+      {
+        plugin: [["@khalilgharbaoui/opencode-claude-code-plugin", { accounts: ["eng"] }]],
+        provider: { "claude-code": { options: { accounts: ["work"] } } },
+      },
+      ["claude-code-default", "claude-code-eng"],
+    ],
+    [
+      "its provider's settings",
+      {
+        plugin: ["@khalilgharbaoui/opencode-claude-code-plugin"],
+        provider: { "claude-code": { settings: { accounts: ["eng"] } } },
+      },
+      ["claude-code-default", "claude-code-eng"],
+    ],
+    [
+      "no accounts option",
+      { plugin: [["@khalilgharbaoui/opencode-claude-code-plugin", {}]] },
+      ["claude-code"],
+    ],
+    [
+      "the last of two plugin entries",
+      {
+        plugin: [
+          ["@khalilgharbaoui/opencode-claude-code-plugin", { accounts: ["old"] }],
+          ["@khalilgharbaoui/opencode-claude-code-plugin@latest", { accounts: ["work"] }],
+        ],
+      },
+      ["claude-code-default", "claude-code-work"],
+    ],
+    [
+      "another plugin's claude-code provider",
+      { provider: { "claude-code": { options: { accounts: ["work"] } } } },
+      ["claude-code"],
+    ],
+  ])("lists the Claude Code plugin's providers for %s", async (_, config, expected) => {
+    writeFileSync(join(workspaceDir, "opencode.json"), JSON.stringify(config));
+
+    const client = createCliQuotaClient({ directory: workspaceDir, anthropicBinaryPath: "claude" });
+
+    await expect(client.config.providers()).resolves.toEqual({
+      data: { providers: expected.map((id) => ({ id })) },
+    });
+  });
+
+  it.each([
+    ["only the Claude CLI is signed in", [], ["claude-code-default", "claude-code-work"]],
+    [
+      "OpenCode has an Anthropic login",
+      [{ id: "work" }],
+      ["claude-code-default", "claude-code-work", "anthropic"],
+    ],
+  ])(
+    "lists anthropic next to the plugin's accounts only for an OpenCode login when %s",
+    async (_, logins, expected) => {
+      authMocks.anthropicConfigured = true;
+      authMocks.anthropicLogins = logins;
+      writeFileSync(
+        join(workspaceDir, "opencode.json"),
+        JSON.stringify({
+          plugin: [["@khalilgharbaoui/opencode-claude-code-plugin", { accounts: ["work"] }]],
+        }),
+      );
+
+      const client = createCliQuotaClient({
+        directory: workspaceDir,
+        anthropicBinaryPath: "claude",
+      });
+
+      await expect(client.config.providers()).resolves.toEqual({
+        data: { providers: expected.map((id) => ({ id })) },
+      });
+    },
+  );
 
   it("lists the providers of every OpenCode config file that counts for its folder", async () => {
     vi.stubEnv("HOME", tempDir);

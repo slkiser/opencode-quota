@@ -1,6 +1,6 @@
 /**
  * Anthropic Claude: the 5h, weekly, Usage Credits and Fable weekly windows of each Claude login
- * stored in OpenCode, or of the login the Claude CLI or its credentials file holds.
+ * stored in OpenCode, the Claude CLI's login, or named Claude Code plugin observations.
  */
 
 import type { DebugDetail } from "../core/types.js";
@@ -14,9 +14,16 @@ import {
   queryAnthropicQuotaWithOAuth,
   readAnthropicLogins,
 } from "../lib/anthropic.js";
+import { claudeCodePluginUsagePath, readClaudeCodePluginUsage } from "../lib/claude-code-plugin.js";
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
+import {
+  claudeCodePluginAccount,
+  claudeCodePluginAccountLabel,
+  claudeCodePluginProviderId,
+  getQuotaProviderIdsForRuntimeId,
+} from "../lib/provider-metadata.js";
 import { resolveQuotaProviderSessionModelIdentity } from "../lib/quota-providers.js";
 import {
   FIVE_HOUR,
@@ -178,15 +185,41 @@ async function fetchFromClaudeCli(options: {
  */
 const CLAUDE_CODE_RUNTIME_IDS = ["claude-code", "claude-agent"];
 
-/** Whether the selected Anthropic runtime, or the only one available, uses Claude Code's login. */
-async function usesClaudeCodeCredentials(ctx: QuotaProviderContext): Promise<boolean> {
-  const currentProviderId = (
+function selectedProviderId(ctx: QuotaProviderContext): string | undefined {
+  return (
     ctx.config.currentProviderID ??
     resolveQuotaProviderSessionModelIdentity({ currentModel: ctx.config.currentModel ?? "" })
       ?.providerId
   )
     ?.trim()
     .toLowerCase();
+}
+
+async function pluginAccounts(ctx: QuotaProviderContext): Promise<string[] | undefined> {
+  const selected = selectedProviderId(ctx);
+  if (selected === "anthropic" || (selected && CLAUDE_CODE_RUNTIME_IDS.includes(selected)))
+    return undefined;
+  const namedSelected = selected !== undefined && claudeCodePluginAccount(selected) !== undefined;
+  try {
+    const runtimeIds = await ctx.resolveRuntimeProviderIds();
+    if (!namedSelected && runtimeIds.has("anthropic")) return undefined;
+    const accounts = [
+      ...new Set(
+        [...runtimeIds].flatMap((id) => {
+          const account = claudeCodePluginAccount(id);
+          return account === undefined ? [] : [account];
+        }),
+      ),
+    ].sort();
+    return accounts.length || namedSelected ? accounts : undefined;
+  } catch {
+    return namedSelected ? [] : undefined;
+  }
+}
+
+/** Whether the selected Anthropic runtime, or the only one available, uses Claude Code's login. */
+async function usesClaudeCodeCredentials(ctx: QuotaProviderContext): Promise<boolean> {
+  const currentProviderId = selectedProviderId(ctx);
   if (currentProviderId && CLAUDE_CODE_RUNTIME_IDS.includes(currentProviderId)) return true;
   if (currentProviderId === "anthropic") return false;
 
@@ -202,9 +235,15 @@ export const anthropicProvider: QuotaProvider = {
   id: "anthropic",
   cachePolicy: {
     kind: "resolved-auth",
-    resolveScope: async (ctx) =>
-      (await usesClaudeCodeCredentials(ctx)) ? "claude-code" : "opencode-auth",
+    async resolveScope(ctx) {
+      const accounts = await pluginAccounts(ctx);
+      if (accounts !== undefined) {
+        return JSON.stringify(["claude-code-plugin", claudeCodePluginUsagePath(), accounts]);
+      }
+      return (await usesClaudeCodeCredentials(ctx)) ? "claude-code" : "opencode-auth";
+    },
     async resolveIdentity(ctx) {
+      if ((await pluginAccounts(ctx)) !== undefined) return null;
       const logins = (await usesClaudeCodeCredentials(ctx)) ? [] : await readAnthropicLogins();
       return anthropicLoginsIdentity(logins, {
         binaryPath: ctx.config.anthropicBinaryPath,
@@ -219,6 +258,8 @@ export const anthropicProvider: QuotaProvider = {
       fallbackOnError: false,
     });
     if (!providerAvailable) return false;
+    const accounts = await pluginAccounts(ctx);
+    if (accounts !== undefined) return accounts.length > 0;
 
     return await hasAnthropicCredentialsConfigured({
       binaryPath: ctx.config?.anthropicBinaryPath,
@@ -227,11 +268,36 @@ export const anthropicProvider: QuotaProvider = {
   },
 
   matchesCurrentModel(model: string): boolean {
-    const normalized = model.toLowerCase();
-    return ["anthropic", ...CLAUDE_CODE_RUNTIME_IDS].some((id) => normalized.startsWith(`${id}/`));
+    const [providerId] = model.split("/");
+    return model.includes("/") && getQuotaProviderIdsForRuntimeId(providerId).includes("anthropic");
+  },
+
+  // Claude Code and Claude Agent use the login of the plugin's `default` account (`~/.claude`).
+  async usageAccounts(ctx: QuotaProviderContext) {
+    const accounts = await pluginAccounts(ctx);
+    if (!accounts?.length) return undefined;
+    const byProvider: Record<string, string> = Object.fromEntries(
+      accounts.map((account) => [
+        claudeCodePluginProviderId(account),
+        claudeCodePluginAccountLabel(account),
+      ]),
+    );
+    if (accounts.includes("default")) {
+      for (const id of CLAUDE_CODE_RUNTIME_IDS) {
+        byProvider[id] = claudeCodePluginAccountLabel("default");
+      }
+    }
+    return byProvider;
+  },
+
+  async liveLocalUsage(ctx: QuotaProviderContext) {
+    return (await pluginAccounts(ctx)) !== undefined;
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<ProviderFetchResult> {
+    const accountsFromPlugin = await pluginAccounts(ctx);
+    if (accountsFromPlugin !== undefined)
+      return await readClaudeCodePluginUsage(accountsFromPlugin);
     const cliOptions = {
       binaryPath: ctx.config?.anthropicBinaryPath,
       requestTimeoutMs: ctx.config?.requestTimeoutMs,

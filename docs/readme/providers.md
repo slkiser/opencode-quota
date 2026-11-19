@@ -379,6 +379,8 @@ OpenCode Quota runs `claude` from OpenCode's `PATH`, or else the first working o
 
 A plan without a weekly limit, such as Enterprise, shows the 5h row and no Weekly row.
 
+With [`@khalilgharbaoui/opencode-claude-code-plugin`](https://github.com/khalilgharbaoui/opencode-claude-code-plugin), each account in the plugin's `accounts` option (`claude-code-default`, `claude-code-<account>`) shows its last 5h and Weekly readings. The plugin records these during Claude turns, so an account has no row until a Claude turn reports its usage. OpenCode Quota reads them at every refresh from the plugin's `account-usage.json` in `$XDG_STATE_HOME/opencode-claude-code-plugin/` (or `~/.local/state/opencode-claude-code-plugin/`). A reading disappears at its reset, or after five hours if it has no reset time, and a window whose limit was hit shows 0% left until its reset. Selecting `anthropic`, `claude-code` or `claude-agent` uses the sources above, and so does an `anthropic` provider in OpenCode unless a named account is selected.
+
 <a id="cursor"></a>
 
 ### Cursor

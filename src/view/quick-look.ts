@@ -4,10 +4,13 @@
  * too, its limits; a quota provider OpenCode did not use gets only its limits.
  * `quotaProviderIdsOfUsage` matches the two.
  */
-import type { QuotaSnapshot, Words } from "../core/types.js";
+import type { ProviderAccount, QuotaSnapshot, Words } from "../core/types.js";
 import { type UsageRange, usageRangeLabel } from "../core/usage-ranges.js";
 import type { UsageProviderRow, UsageReport } from "../core/usage.js";
-import { getQuotaProviderIdsForRuntimeId } from "../lib/provider-metadata.js";
+import {
+  claudeCodePluginAccount,
+  getQuotaProviderIdsForRuntimeId,
+} from "../lib/provider-metadata.js";
 import { columnsOf } from "./columns.js";
 import { DEFAULT_WORDS, fit, formatTokens, formatUsd } from "./format.js";
 import { errorWords, type Place, rowFacts } from "./row-facts.js";
@@ -45,14 +48,24 @@ export function quotaProviderIdsOfUsage(usageProviderID: string): string[] {
 }
 
 /**
- * The quota group serves what OpenCode used under `usageProviderID`: its quota provider is one
- * that id stands for, or it shows a custom definition serving that id (`customRowProviders`).
+ * The quota group serves what OpenCode used under `usageProviderID`: the account that id uses
+ * (`providerAccounts`), else its quota provider is one that id stands for and no other id has
+ * the group as its account, or it shows a custom definition serving that id
+ * (`customRowProviders`). A named Claude Code account serves only its own account.
  */
 function groupServesUsage(
   group: Group,
   usageProviderID: string,
   customRowProviders: Readonly<Record<string, string>>,
+  providerAccounts: Readonly<Record<string, ProviderAccount>>,
 ): boolean {
+  const isAccount = (link: ProviderAccount | undefined) =>
+    link?.providerId === group.providerId && link.account === group.account;
+  if (Object.hasOwn(providerAccounts, usageProviderID)) {
+    return isAccount(providerAccounts[usageProviderID]);
+  }
+  if (Object.values(providerAccounts).some(isAccount)) return false;
+  if (claudeCodePluginAccount(usageProviderID) !== undefined) return false;
   if (quotaProviderIdsOfUsage(usageProviderID).includes(group.providerId)) return true;
   const prefixes = Object.keys(customRowProviders).filter(
     (prefix) => customRowProviders[prefix] === usageProviderID,
@@ -85,11 +98,14 @@ function blocksOf(
   report: UsageReport | undefined,
 ): Block[] {
   const customRowProviders = snapshot?.customRowProviders ?? {};
+  const providerAccounts = snapshot?.providerAccounts ?? {};
   const used = (report?.providers ?? []).filter((row) => row.tokens > 0);
   const claimed = new Set<Group>();
   const usedBlocks = used.map((row): Block => {
     const own = groups.filter(
-      (group) => !claimed.has(group) && groupServesUsage(group, row.providerID, customRowProviders),
+      (group) =>
+        !claimed.has(group) &&
+        groupServesUsage(group, row.providerID, customRowProviders, providerAccounts),
     );
     for (const group of own) claimed.add(group);
     // One group: its title names the account ("Custom providers (Team)").

@@ -6,6 +6,7 @@
 import type { ServerSettings } from "../core/provider-source.js";
 import type { QuotaStore } from "../core/store.js";
 import type { ProviderSnapshot, QuotaRow, QuotaSnapshot } from "../core/types.js";
+import { servesCurrentModel } from "../view/select.js";
 
 /** Extra wait after the reset time, so the provider has reset the window when the retry runs. */
 export const QUOTA_RESET_RETRY_BUFFER_MS = 60_000;
@@ -57,12 +58,16 @@ export function getQuotaResetRetryDelayMs(
 
 /**
  * The provider's rows that serve the snapshot's model: a provider whose rows serve different
- * models (the custom providers) has only those under its `currentModelRowPrefixes`.
+ * models (the custom providers) has only those under its `currentModelRowPrefixes`, and one whose
+ * accounts are separate OpenCode providers only the model's account's (`servesCurrentModel`).
  */
 function modelRows(snapshot: QuotaSnapshot, provider: ProviderSnapshot): QuotaRow[] {
   const prefixes = snapshot.currentModelRowPrefixes?.[provider.providerId];
-  if (prefixes === undefined) return provider.rows;
-  return provider.rows.filter((row) => prefixes.some((prefix) => row.id.startsWith(prefix)));
+  return provider.rows.filter(
+    (row) =>
+      servesCurrentModel(snapshot, row) &&
+      (prefixes === undefined || prefixes.some((prefix) => row.id.startsWith(prefix))),
+  );
 }
 
 /**
