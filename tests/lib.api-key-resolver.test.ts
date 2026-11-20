@@ -64,6 +64,13 @@ const EXPECTED_API_KEY_VENDORS: Record<string, ApiKeyLoginSpec> = {
     authKeys: ["deepseek"],
     skipBrokenLogins: true,
   },
+  mistral: {
+    displayName: "Mistral AI",
+    envVars: ["MISTRAL_API_KEY"],
+    providerKeys: ["mistral"],
+    authKeys: ["mistral"],
+    skipBrokenLogins: true,
+  },
   "ollama-cloud": {
     displayName: "Ollama Cloud",
     envVars: ["OLLAMA_API_KEY"],

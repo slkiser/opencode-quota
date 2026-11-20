@@ -113,6 +113,7 @@ Log in with `/connect` and the provider shows up. Switch providers on or off in 
 | [Gemini CLI](docs/readme/providers.md#gemini-cli)\* | Business |
 | GitHub Copilot | Personal · [Business](docs/readme/providers.md#github-copilot)\* |
 | [Google AGY](docs/readme/providers.md#google-agy-quick-setup)\* | Personal · Business |
+| Mistral AI | Personal · Business |
 | Ollama Cloud | Personal |
 | OpenAI | Personal · Business |
 | OpenCode Go | Personal |
