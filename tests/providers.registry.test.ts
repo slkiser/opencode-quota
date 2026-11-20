@@ -11,6 +11,7 @@ const EXPECTED_PROVIDER_ORDER = [
   "openrouter",
   "cursor",
   "commandcode",
+  "devin",
   "alibaba-coding-plan",
   "alibaba-token-plan",
   "google-gemini-cli",

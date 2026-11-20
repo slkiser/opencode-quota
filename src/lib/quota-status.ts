@@ -1142,6 +1142,7 @@ const DEBUG_DETAILS = {
   "google-agy": GOOGLE_DETAILS,
   openrouter: {},
   commandcode: {},
+  devin: {},
   zai: {},
   zhipu: {},
   deepseek: {},
