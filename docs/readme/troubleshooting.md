@@ -16,6 +16,15 @@ OpenCode Quota never reads OpenCode's `auth.json`. Inside OpenCode, it asks Open
 
 `/quota_status` also shows the `opencode.db` path used for session and token history. `OPENCODE_DB` and `XDG_DATA_HOME` change it. Custom or source builds of OpenCode may use `opencode-<channel>.db`; set `OPENCODE_DB` to that file's path.
 
+## A login under a provider id OpenCode no longer has
+
+Logins stay in `opencode.db` under the provider id that was current when they were saved. When models.dev renames or removes a provider id (it did for Kimi Code in September 2026), OpenCode stops registering the old id, so it can neither use nor remove that login: `opencode auth logout` resolves ids against the providers OpenCode has. OpenCode Quota skips such a login, names its id under `auth_logins_ignored` in `/quota_status`, and asks you to sign in again. Remove the leftover row by hand:
+
+1. Close OpenCode.
+2. Read the id `/quota_status` names under `auth_logins_ignored`, and find the row with it: `sqlite3 "<path to opencode.db>" "SELECT id, integration_id, label FROM credential WHERE integration_id = '<the id>';"`
+3. Delete that row: `sqlite3 "<path to opencode.db>" "DELETE FROM credential WHERE id = '<id>';"`
+4. Open OpenCode and sign in again for that provider, so a login on its current id exists.
+
 ## Service environment
 
 The TUI, Web, and Desktop get their numbers from OpenCode's background service. The service takes `PATH` and environment variables from whatever started it first, not from the terminal you use now, and it runs in your home folder. The terminal command uses your terminal's `PATH`, environment, and current folder instead.

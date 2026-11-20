@@ -13,7 +13,10 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createSqliteCredentialSource } from "../src/lib/opencode-auth-sqlite.js";
+import {
+  clearCredentialCatalogCacheForTests,
+  createSqliteCredentialSource,
+} from "../src/lib/opencode-auth-sqlite.js";
 import {
   bindCredentialSource,
   clearCredentialRowCacheForTests,
@@ -105,12 +108,14 @@ beforeEach(() => {
   databasePath = join(dataDir, "opencode.db");
   vi.stubEnv("XDG_DATA_HOME", root);
   vi.stubEnv("OPENCODE_DB", databasePath);
+  clearCredentialCatalogCacheForTests();
   unbind = bindCredentialSource(createSqliteCredentialSource());
 });
 
 afterEach(() => {
   unbind();
   clearCredentialRowCacheForTests();
+  clearCredentialCatalogCacheForTests();
   vi.unstubAllEnvs();
   rmSync(root, { recursive: true, force: true });
 });
@@ -292,6 +297,85 @@ describe("the terminal command's database login reader", () => {
     await expect(readActive({ integrationIds: ["openai"] })).resolves.toEqual({
       openai: { type: "oauth", access: "usable-access" },
     });
+  });
+
+  it("marks a row registered only when the cached models.dev catalog has its integration id", async () => {
+    writeCredentialDatabase(
+      databasePath,
+      [
+        {
+          id: "canonical",
+          integrationId: "kimi-code-plan-cn",
+          active: 1,
+          updated: 2,
+          value: { type: "key", key: "canonical-key" },
+        },
+        {
+          id: "stranded",
+          integrationId: "kimi-for-coding",
+          active: 0,
+          updated: 1,
+          value: { type: "key", key: "stranded-key" },
+        },
+      ],
+      { catalog: { "kimi-code-plan-cn": { id: "kimi-code-plan-cn" } } },
+    );
+
+    expect(
+      (await readCredentialRows(["kimi-code-plan-cn", "kimi-for-coding"])).map((row) => [
+        row.id,
+        row.registered,
+      ]),
+    ).toEqual([
+      ["canonical", true],
+      ["stranded", false],
+    ]);
+  });
+
+  it("accepts the catalog body as an object, and keeps every login when it cannot be read", async () => {
+    writeCredentialDatabase(databasePath, [BASE_ROWS[2]!]);
+    const database = new DatabaseSync(databasePath);
+    database.exec("CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    const insert = database.prepare("INSERT INTO kv VALUES (?, ?)");
+    insert.run(
+      "models-dev:v2:catalog",
+      JSON.stringify({ updatedAt: 0, digest: "test", body: { deepseek: {} } }),
+    );
+    database.close();
+    expect((await readCredentialRows(["deepseek"])).map((row) => row.registered)).toEqual([true]);
+
+    for (const value of ["{broken", JSON.stringify({ updatedAt: 0, body: {} })]) {
+      rmSync(databasePath, { force: true });
+      writeCredentialDatabase(databasePath, [BASE_ROWS[2]!]);
+      clearCredentialCatalogCacheForTests();
+      const broken = new DatabaseSync(databasePath);
+      broken.exec("CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+      broken.prepare("INSERT INTO kv VALUES (?, ?)").run("models-dev:v2:catalog", value);
+      broken.close();
+
+      const [row] = await readCredentialRows(["deepseek"]);
+      expect(row).not.toHaveProperty("registered");
+    }
+  });
+
+  it("takes each login's integration name from the cached models.dev catalog", async () => {
+    writeCredentialDatabase(databasePath, BASE_ROWS, {
+      catalog: { "github-copilot": { name: "GitHub Copilot" }, openai: { name: "OpenAI" } },
+    });
+
+    const rows = await readCredentialRows(["github-copilot", "openai", "deepseek"]);
+    expect(rows.map((row) => [row.id, row.integrationName])).toEqual([
+      ["deepseek", undefined],
+      ["openai", "OpenAI"],
+      ["copilot", "GitHub Copilot"],
+    ]);
+  });
+
+  it("leaves the integration name absent when the database has no cached catalog", async () => {
+    writeCredentialDatabase(databasePath, BASE_ROWS);
+
+    const rows = await readCredentialRows(["github-copilot", "openai", "deepseek"]);
+    expect(rows.map((row) => row.integrationName)).toEqual([undefined, undefined, undefined]);
   });
 
   it("leaves the database file byte-for-byte unchanged and reports sqlite as the source", async () => {

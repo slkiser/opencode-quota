@@ -10,7 +10,7 @@
 
 import { existsSync } from "fs";
 
-import { isRecord } from "./json-guards.js";
+import { isRecord, nonEmptyString } from "./json-guards.js";
 import {
   type CredentialMethod,
   type CredentialRow,
@@ -19,11 +19,59 @@ import {
 } from "./opencode-auth.js";
 import { openOpenCodeSqliteReadOnly, type SqliteConn } from "./opencode-sqlite.js";
 
+/** The `kv` key of the models.dev catalog OpenCode caches in its database. */
+const CATALOG_KEY = "models-dev:v2:catalog";
+
+/**
+ * The cached catalog: the provider ids it names, and the name OpenCode gives each of them (which
+ * it also puts on an unnamed login). Its value is about 12 MB, so it is read once per process;
+ * `null` when it is absent or unreadable, and `undefined` before the first read.
+ */
+type CachedCatalog = { ids: ReadonlySet<string>; names: ReadonlyMap<string, string> };
+let cachedCatalog: CachedCatalog | null | undefined;
+
 /** The OpenCode 2 method of a parsed credential value (the reader maps a stored `key` to `api`). */
 function credentialMethod(value: Record<string, unknown>): CredentialMethod | undefined {
   if (value.type === "oauth") return "oauth";
   if (value.type === "api" || value.type === "key") return "key";
   return undefined;
+}
+
+/**
+ * The cached models.dev catalog: an integration id it does not name is one OpenCode no longer
+ * registers, and the name it gives a provider is the label OpenCode puts on an unnamed login.
+ * Null when there is no catalog, or it cannot be read or parsed: every login is then kept and
+ * unnamed.
+ */
+function readCachedCatalog(database: SqliteConn): CachedCatalog | null {
+  if (cachedCatalog !== undefined) return cachedCatalog;
+  cachedCatalog = null;
+  try {
+    const row = database.get<Record<string, unknown>>("SELECT value FROM kv WHERE key = ?", [
+      CATALOG_KEY,
+    ]);
+    const entry: unknown = typeof row?.value === "string" ? JSON.parse(row.value) : undefined;
+    // The catalog sits in `body` as a JSON string (OpenCode stores it double-encoded).
+    const body: unknown = isRecord(entry) ? entry.body : undefined;
+    const catalog: unknown = typeof body === "string" ? JSON.parse(body) : body;
+    const ids = isRecord(catalog) ? Object.keys(catalog) : [];
+    if (ids.length === 0) return null;
+    const names = new Map<string, string>();
+    for (const id of ids) {
+      const item = (catalog as Record<string, unknown>)[id];
+      const name = isRecord(item) ? nonEmptyString(item.name) : undefined;
+      if (name) names.set(id, name);
+    }
+    cachedCatalog = { ids: new Set(ids), names };
+  } catch {
+    cachedCatalog = null;
+  }
+  return cachedCatalog;
+}
+
+/** Drops the parsed catalog, so the next read in this process reads it again. */
+export function clearCredentialCatalogCacheForTests(): void {
+  cachedCatalog = undefined;
 }
 
 async function readCredentialDatabase(path: string): Promise<CredentialRow[]> {
@@ -32,6 +80,7 @@ async function readCredentialDatabase(path: string): Promise<CredentialRow[]> {
   let database: SqliteConn | undefined;
   try {
     database = await openOpenCodeSqliteReadOnly(path);
+    const catalog = readCachedCatalog(database);
     const rows = database.all<Record<string, unknown>>(
       "SELECT id, integration_id, label, active, value FROM credential WHERE integration_id IS NOT NULL ORDER BY active DESC, time_updated DESC, id DESC",
     );
@@ -47,12 +96,15 @@ async function readCredentialDatabase(path: string): Promise<CredentialRow[]> {
         continue;
       const value = parseCredentialValue(row.value);
       if (value) {
+        const integrationName = catalog?.names.get(row.integration_id);
         credentials.push({
           id: row.id,
           integrationId: row.integration_id,
           label: row.label,
           active: row.active === 1,
           value,
+          ...(catalog ? { registered: catalog.ids.has(row.integration_id) } : {}),
+          ...(integrationName ? { integrationName } : {}),
         });
       }
     }

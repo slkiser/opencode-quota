@@ -15,6 +15,7 @@ import {
   getCredentialDatabasePaths,
   readActiveCredentialRowsCached,
   readCredentialRows,
+  selectConnectionCredentialRows,
 } from "./opencode-auth.js";
 import {
   existingOpenCodeConfigFiles,
@@ -376,34 +377,56 @@ export type KeyLogin = {
 
 /**
  * Every key login of the vendor stored in OpenCode, in OpenCode's order, with what each one
- * holds. `selectRows` narrows the logins further, for example to drop alias duplicates.
+ * holds. `selectRows` narrows the logins further; by default a login holding a value another
+ * login already holds is the same account, so it appears once. A login stored under an
+ * integration id OpenCode no longer registers is dropped and reported instead: OpenCode can
+ * neither use nor log it out.
  */
 export async function readKeyLogins(
   spec: ApiKeyLoginSpec,
   options: { selectRows?: (rows: CredentialRow[]) => CredentialRow[] } = {},
-): Promise<KeyLogin[]> {
+): Promise<{ logins: KeyLogin[]; ignored: string[] }> {
   const vendorRows = (await readCredentialRows(spec.authKeys, { methods: ["key"] })).filter((row) =>
     spec.authKeys.includes(row.integrationId),
   );
-  const rows = options.selectRows ? options.selectRows(vendorRows) : vendorRows;
-  return rows.flatMap((row) => {
+  const ignored = [
+    ...new Set(
+      vendorRows.filter((row) => row.registered === false).map((row) => row.integrationId),
+    ),
+  ].sort();
+  const kept = vendorRows.filter((row) => row.registered !== false);
+  const rows = options.selectRows
+    ? options.selectRows(kept)
+    : selectConnectionCredentialRows(kept, spec.authKeys[0]);
+  const logins = rows.flatMap((row) => {
     const auth = parseApiKeyLogin(spec, row);
     if (auth.state === "none") return [];
     if (auth.state === "invalid" && spec.skipBrokenLogins) return [];
     return [{ row, auth }];
   });
+  return { logins, ignored };
 }
+
+/**
+ * A vendor's only stored login is under an integration id OpenCode no longer registers: it
+ * cannot be used, and `opencode auth logout` resolves ids against the registered ones, so it
+ * cannot remove it either.
+ */
+export const IGNORED_LOGIN_NOTE =
+  "This login is stored under an integration id OpenCode no longer has, so `opencode auth logout` cannot remove it. Log in again on the current id.";
 
 /**
  * The keys a vendor checks: the env or config key when one is set, else every stored login.
  * `broken` is the error of the first stored login when it is not a usable key and no stored
  * key login is listed (for example an OAuth login of a key-only vendor); vendors that skip
- * broken logins never have one.
+ * broken logins never have one. `ignored` lists the integration ids of stored logins this
+ * plugin skipped because OpenCode no longer registers them.
  */
 export type VendorKeys = {
   envOrConfig: ApiKeyResult | null;
   logins: KeyLogin[];
   broken: string | null;
+  ignored: string[];
 };
 
 export async function readVendorKeys(
@@ -412,14 +435,21 @@ export async function readVendorKeys(
   options: { selectRows?: (rows: CredentialRow[]) => CredentialRow[] } = {},
 ): Promise<VendorKeys> {
   const envOrConfig = await resolveApiKeyFromEnvAndConfig(spec, directory);
-  if (envOrConfig) return { envOrConfig, logins: [], broken: null };
-  const logins = await readKeyLogins(spec, options);
-  if (logins.length > 0 || spec.skipBrokenLogins) return { envOrConfig, logins, broken: null };
+  if (envOrConfig) return { envOrConfig, logins: [], broken: null, ignored: [] };
+  const { logins, ignored } = await readKeyLogins(spec, options);
+  // A stranded login is never the fallback row below: it is one of the ignored ones.
+  if (logins.length > 0 || ignored.length > 0 || spec.skipBrokenLogins)
+    return { envOrConfig, logins, broken: null, ignored };
   const first = parseApiKeyLogin(spec, await readApiKeyLoginRow(spec));
-  return { envOrConfig, logins, broken: first.state === "invalid" ? first.error : null };
+  return { envOrConfig, logins, broken: first.state === "invalid" ? first.error : null, ignored };
 }
 
-/** True when the vendor has a key to check, or a broken login to show. */
+/** True when the vendor has a key to check, or a broken or stranded login to show. */
 export function hasVendorKey(keys: VendorKeys): boolean {
-  return keys.envOrConfig !== null || keys.logins.length > 0 || keys.broken !== null;
+  return (
+    keys.envOrConfig !== null ||
+    keys.logins.length > 0 ||
+    keys.broken !== null ||
+    keys.ignored.length > 0
+  );
 }

@@ -32,12 +32,24 @@ export type CredentialRow = {
   active: boolean;
   value: Record<string, unknown>;
   /**
+   * The registered name of the row's integration (`GitHub Copilot` for
+   * `github-copilot`). OpenCode labels every login the user never named with this
+   * name, so a label equal to it is not an alias; absent when unknown.
+   */
+  integrationName?: string;
+  /**
    * Why OpenCode could not return this login (for example a failed token
    * refresh), as `<category>: <scrubbed detail>`. A failed row keeps its id,
    * label and position, but its `value` is only `{ type: "api" | "oauth" | "external" }`;
    * consumers show `resolveError` as a per-account error.
    */
   resolveError?: string;
+  /**
+   * Whether OpenCode still registers this row's integration id: a login stored
+   * under an id OpenCode no longer has cannot be used or logged out there.
+   * Absent means the source cannot tell, so the login is kept.
+   */
+  registered?: boolean;
 };
 
 /**
@@ -122,6 +134,19 @@ let lastListError: { at: number; detail: string } | undefined;
  */
 const GENERIC_CREDENTIAL_LABELS: ReadonlySet<string> = new Set(["default", "oauth", "api key"]);
 
+/**
+ * Whether `label` is the name OpenCode itself gives an unnamed login: the
+ * integration's registered name, numbered `"<name> 2"` for the second login.
+ */
+function isIntegrationAutoLabel(label: string, integrationName: string | undefined): boolean {
+  const name = integrationName?.trim().toLowerCase();
+  if (!name) return false;
+  const candidate = label.toLowerCase();
+  if (candidate === name) return true;
+  if (!candidate.startsWith(`${name} `)) return false;
+  return /^ \d+$/u.test(candidate.slice(name.length));
+}
+
 export function formatCredentialDisplayNames(
   providerName: string,
   credentials: ReadonlyArray<{
@@ -134,7 +159,8 @@ export function formatCredentialDisplayNames(
     const alias = row.label.trim();
     return !alias ||
       GENERIC_CREDENTIAL_LABELS.has(alias.toLowerCase()) ||
-      alias.toLowerCase() === providerName.toLowerCase()
+      alias.toLowerCase() === providerName.toLowerCase() ||
+      isIntegrationAutoLabel(alias, row.integrationName)
       ? ""
       : alias;
   });
@@ -227,21 +253,36 @@ export function getCredentialSourceDiagnostics(): CredentialSourceDiagnostics {
 }
 
 type ConnectionSlot =
-  | { integrationId: string; connection: CredentialConnection }
-  | { integrationId: string; activeFailure: CredentialFailure };
+  | {
+      integrationId: string;
+      connection: CredentialConnection;
+      registered?: boolean;
+      integrationName?: string;
+    }
+  | {
+      integrationId: string;
+      activeFailure: CredentialFailure;
+      registered?: boolean;
+      integrationName?: string;
+    };
 
 type ResolveOutcome = { value: CredentialValue } | { failure: CredentialFailure };
 
-/** The active connection of one integration id; works for ids OpenCode has not registered. */
+/**
+ * The active connection of one integration id; works for ids OpenCode has not registered.
+ * `registered` is passed on when the caller knows whether OpenCode still lists the id.
+ */
 async function activeConnectionSlots(
   integration: CredentialIntegration,
   integrationId: string,
+  registered?: boolean,
 ): Promise<ConnectionSlot[]> {
+  const known = registered === undefined ? {} : { registered };
   try {
     const connection = await integration.connection.active(integrationId);
     credentialFailures.delete(integrationId);
     // An env connection means no stored login; providers apply their own env rules.
-    return connection?.type === "credential" ? [{ integrationId, connection }] : [];
+    return connection?.type === "credential" ? [{ integrationId, connection, ...known }] : [];
   } catch (error) {
     const activeFailure: CredentialFailure = {
       at: Date.now(),
@@ -251,7 +292,7 @@ async function activeConnectionSlots(
       label: "",
     };
     credentialFailures.set(integrationId, activeFailure);
-    return [{ integrationId, activeFailure }];
+    return [{ integrationId, activeFailure, ...known }];
   }
 }
 
@@ -284,9 +325,11 @@ async function listedConnectionSlots(
   integrationIds: readonly string[],
 ): Promise<{ slots: ConnectionSlot[]; activeConnections: Map<string, CredentialConnection> }> {
   let listed: Map<string, readonly Connection[]> | undefined;
+  let integrationNames: Map<string, string> | undefined;
   try {
     const { data } = await integration.list();
     listed = new Map(data.map((info) => [info.id, info.connections]));
+    integrationNames = new Map(data.map((info) => [info.id, info.name]));
     lastListError = undefined;
   } catch (error) {
     // One malformed login anywhere makes list() fail; each id's active login still reads.
@@ -298,7 +341,8 @@ async function listedConnectionSlots(
   for (const integrationId of integrationIds) {
     const connections = listed?.get(integrationId);
     if (connections === undefined) {
-      for (const slot of await activeConnectionSlots(integration, integrationId)) {
+      // Not registered: OpenCode can neither use nor log out this login.
+      for (const slot of await activeConnectionSlots(integration, integrationId, false)) {
         slots.push(slot);
         if ("connection" in slot) activeConnections.set(integrationId, slot.connection);
       }
@@ -308,7 +352,15 @@ async function listedConnectionSlots(
       (connection): connection is CredentialConnection => connection.type === "credential",
     );
     if (credentials.length === 0) continue;
-    for (const connection of credentials) slots.push({ integrationId, connection });
+    const integrationName = integrationNames?.get(integrationId);
+    for (const connection of credentials) {
+      slots.push({
+        integrationId,
+        connection,
+        registered: true,
+        ...(integrationName ? { integrationName } : {}),
+      });
+    }
     const active = await activeListedConnection(integration, integrationId);
     if (active) activeConnections.set(integrationId, active);
   }
@@ -389,6 +441,7 @@ async function credentialRowForSlot(
   slot: ConnectionSlot,
   methods: readonly CredentialMethod[] | undefined,
 ): Promise<CredentialRow> {
+  const registered = slot.registered === undefined ? {} : { registered: slot.registered };
   if ("activeFailure" in slot) {
     const failure = slot.activeFailure;
     return {
@@ -400,6 +453,7 @@ async function credentialRowForSlot(
       // gets a key-shaped failure, every other read an OAuth-shaped one.
       value: { type: methods && !methods.includes("oauth") ? "api" : "oauth" },
       resolveError: `${failure.category}: ${failure.detail}`,
+      ...registered,
     };
   }
 
@@ -410,6 +464,8 @@ async function credentialRowForSlot(
     integrationId: slot.integrationId,
     label: connection.label,
     active: false,
+    ...registered,
+    ...(slot.integrationName ? { integrationName: slot.integrationName } : {}),
   };
   return "value" in outcome
     ? { ...row, value: credentialRowValue(outcome.value) }

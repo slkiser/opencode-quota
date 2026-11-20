@@ -120,15 +120,24 @@ async function readActiveMarks(
   return (await readCredentialRows(...args)).map((row) => [row.id, row.active]);
 }
 
-/** Display names for rows given as [label, fallbackName, numberUnnamed?]; the first row is active. */
+/** Display names for rows given as [label, fallbackName, numberUnnamed?, integrationName?]; the first row is active. */
 function displayNames(
   providerName: string,
-  rows: Array<[label: string, fallbackName: string, numberUnnamed?: boolean]>,
+  rows: Array<
+    [label: string, fallbackName: string, numberUnnamed?: boolean, integrationName?: string]
+  >,
 ): string[] {
   return formatCredentialDisplayNames(
     providerName,
-    rows.map(([label, fallbackName, numberUnnamed], index) => ({
-      row: { id: `${index}`, integrationId: "test", label, active: index === 0, value: {} },
+    rows.map(([label, fallbackName, numberUnnamed, integrationName], index) => ({
+      row: {
+        id: `${index}`,
+        integrationId: "test",
+        label,
+        active: index === 0,
+        value: {},
+        ...(integrationName === undefined ? {} : { integrationName }),
+      },
       fallbackName,
       ...(numberUnnamed === undefined ? {} : { numberUnnamed }),
     })),
@@ -168,6 +177,53 @@ describe("formatCredentialDisplayNames", () => {
       ).toEqual([expected]);
     },
   );
+
+  it.each([
+    // OpenCode labels an unnamed login with the integration's registered name, numbered
+    // "<name> 2" for the second one; a name the user chose afterwards still shows.
+    {
+      name: "drops a label OpenCode copied from the integration name",
+      provider: "Kimi Code (CN)",
+      fallback: "Kimi Code (CN)",
+      label: "Kimi For Coding (kimi.com)",
+      integrationName: "Kimi For Coding (kimi.com)",
+      expected: "[Kimi Code (CN)]",
+    },
+    {
+      name: "drops a numbered auto label",
+      provider: "Kimi Code (CN)",
+      fallback: "Kimi Code (CN)",
+      label: "Kimi For Coding (kimi.com) 2",
+      integrationName: "Kimi For Coding (kimi.com)",
+      expected: "[Kimi Code (CN)]",
+    },
+    {
+      name: "keeps a renamed login",
+      provider: "Kimi Code (CN)",
+      fallback: "Kimi Code (CN)",
+      label: "Work",
+      integrationName: "Kimi For Coding (kimi.com)",
+      expected: "[Kimi Code (CN) Work]",
+    },
+    {
+      name: "keeps the label when the integration name is unknown",
+      provider: "Kimi Code (CN)",
+      fallback: "Kimi Code (CN)",
+      label: "Kimi For Coding (kimi.com)",
+      integrationName: undefined,
+      expected: "[Kimi Code (CN) Kimi For Coding (kimi.com)]",
+    },
+    {
+      name: "drops the Copilot integration name",
+      provider: "Copilot",
+      fallback: "Copilot (individual)",
+      label: "GitHub Copilot",
+      integrationName: "GitHub Copilot",
+      expected: "[Copilot] (individual)",
+    },
+  ])("$name", ({ provider, fallback, label, integrationName, expected }) => {
+    expect(displayNames(provider, [[label, fallback, false, integrationName]])).toEqual([expected]);
+  });
 
   it.each([
     {
@@ -283,6 +339,8 @@ describe("integration credential source", () => {
         integrationId: "openai",
         label: "Personal",
         active: true,
+        registered: true,
+        integrationName: "openai",
         value: {
           accountID: "acct_1",
           type: "oauth",
@@ -298,6 +356,8 @@ describe("integration credential source", () => {
         integrationId: "openai",
         label: "Work",
         active: false,
+        registered: true,
+        integrationName: "openai",
         value: {
           type: "oauth",
           methodID: "device",
@@ -312,6 +372,8 @@ describe("integration credential source", () => {
         label: "default",
         // The connection active("deepseek") reports, so its row is the active one.
         active: true,
+        registered: true,
+        integrationName: "deepseek",
         value: { region: "eu", type: "api", key: "deepseek-key", metadata: { region: "eu" } },
       },
     ]);
@@ -335,6 +397,17 @@ describe("integration credential source", () => {
     ]);
 
     expect(await readIds(["openai", "codex"])).toEqual(["cred_openai", "cred_codex_newest"]);
+    // The id list() does not show is a login OpenCode can neither use nor log out.
+    expect(
+      (await readCredentialRows(["openai", "codex"])).map((row) => [row.id, row.registered]),
+    ).toEqual([
+      ["cred_openai", true],
+      ["cred_codex_newest", false],
+    ]);
+    // A firstOnly read never lists, so it cannot tell and keeps the login.
+    expect(
+      (await readCredentialRows(["codex"], { firstOnly: true })).map((row) => row.registered),
+    ).toEqual([undefined]);
   });
 
   it("skips env connections, which are not stored logins", async () => {
@@ -518,6 +591,8 @@ describe("integration credential source", () => {
         integrationId: "openai",
         label: "Work",
         active: true,
+        registered: true,
+        integrationName: "openai",
         value: { type: "oauth" },
         resolveError: "refresh_failed: Token refresh failed: 400",
       },
@@ -623,6 +698,8 @@ describe("integration credential source", () => {
         integrationId: "deepseek",
         label: "default",
         active: true,
+        registered: true,
+        integrationName: "deepseek",
         value: { type: "api" },
         resolveError: "resolve_empty: OpenCode returned no login",
       },

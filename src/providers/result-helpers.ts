@@ -2,6 +2,7 @@ import type { DebugDetail } from "../core/types.js";
 import {
   type ApiKeySpec,
   getApiKeyCheckedPaths,
+  IGNORED_LOGIN_NOTE,
   type VendorKeys,
 } from "../lib/api-key-resolver.js";
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
@@ -57,7 +58,7 @@ export function vendorKeyState(keys: VendorKeys): KeyState {
     : { state: "invalid", source: "opencode.db", error };
 }
 
-/** Where a vendor's API key was looked for, and what its first key holds. */
+/** Where a vendor's API key was looked for, what its first key holds, and any stranded login. */
 export function vendorKeyDetails(
   spec: ApiKeySpec,
   keys: VendorKeys,
@@ -71,6 +72,8 @@ export function vendorKeyDetails(
     api_key_checked_paths: getApiKeyCheckedPaths(spec, directory).join(" | ") || "(none)",
     api_key_credential_database_paths: getCredentialDatabasePaths().join(" | ") || "(none)",
     auth_error: key.state === "invalid" ? sanitizeDisplayText(key.error) : undefined,
+    auth_logins_ignored: keys.ignored.length > 0 ? keys.ignored.join(" | ") : undefined,
+    auth_login_note: keys.ignored.length > 0 ? IGNORED_LOGIN_NOTE : undefined,
   });
 }
 

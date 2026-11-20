@@ -60,7 +60,7 @@ describe("fetchStoredKeys", () => {
   ])("with brokenFirst %s lists the accounts %j", async (brokenFirst, names) => {
     const { attempted, accounts } = await fetchStoredKeys({
       providerName: "Kimi",
-      keys: { envOrConfig: null, logins, broken: null },
+      keys: { envOrConfig: null, logins, broken: null, ignored: [] },
       brokenFirst,
       async fetchKey(apiKey) {
         return apiKey === "bad"
@@ -82,7 +82,7 @@ describe("fetchStoredKeys", () => {
   ])("shows %s", async (_name, broken, attempted) => {
     const fetched = await fetchStoredKeys({
       providerName: "Kimi",
-      keys: { envOrConfig: null, logins: [], broken },
+      keys: { envOrConfig: null, logins: [], broken, ignored: [] },
       brokenFirst: true,
       fetchKey: async () => ({ rows: [FIVE_HOUR_ROW], errors: [] }),
     });
