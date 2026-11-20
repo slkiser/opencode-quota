@@ -2578,3 +2578,64 @@ describe("statusReport", () => {
     expect(after).not.toContain("- conversion:");
   });
 });
+
+describe("renderQuotaStatusReport: Codex CLI fallback", () => {
+  it("names the CLI sign-in a Sign in with ChatGPT login falls back to", async () => {
+    const text = await report({
+      providers: [
+        snapshot("openai", {
+          debug: [
+            { key: "auth_method", value: "chatgpt-token-sharing" },
+            { key: "codex_cli_state", value: "configured" },
+            { key: "codex_cli_sign_in", value: join(root, ".codex", "auth.json") },
+            { key: "codex_cli_account", value: "same" },
+            { key: "codex_cli_expires_at", value: "2026-11-26T15:29:21.000Z" },
+          ],
+        }),
+      ],
+    });
+
+    const openai = section(text, "openai");
+    expect(openai).toContain("- codex_cli_state: configured");
+    expect(openai).toContain("- codex_cli_sign_in: ~/.codex/auth.json");
+    expect(openai).toContain("- codex_cli_account: same");
+    expect(openai).toContain("- codex_cli_expires_at: 2026-11-26T15:29:21.000Z");
+    expect(openai).not.toContain("other details not shown");
+  });
+
+  it("reports a missing CLI sign-in, so the search is visible", async () => {
+    const text = await report({
+      providers: [
+        snapshot("openai", {
+          debug: [
+            { key: "auth_method", value: "chatgpt-token-sharing" },
+            { key: "codex_cli_state", value: "missing" },
+          ],
+        }),
+      ],
+    });
+
+    expect(section(text, "openai")).toContain("- codex_cli_state: missing");
+  });
+});
+
+it("never prints an account id or a private path from a Codex CLI detail", async () => {
+  const text = await report({
+    providers: [
+      snapshot("openai", {
+        debug: [
+          { key: "codex_cli_state", value: "bogus" },
+          { key: "codex_cli_sign_in", value: "/home/secret/creds.json" },
+          { key: "codex_cli_account", value: "acct-1234" },
+          { key: "codex_cli_expires_at", value: "not a date" },
+        ],
+      }),
+    ],
+  });
+
+  const openai = section(text, "openai");
+  expect(openai).not.toContain("acct-1234");
+  expect(openai).not.toContain("secret");
+  // A value outside its allowed words is dropped, not shown.
+  expect(openai).not.toContain("codex_cli_account");
+});

@@ -41,6 +41,9 @@ const CREDENTIAL_ENV_NAMES = [
   "GOOGLE_APPLICATION_CREDENTIALS",
   "GOOGLE_CLOUD_PROJECT",
   "GOOGLE_CLOUD_PROJECT_ID",
+  // The OpenAI provider falls back to the Codex CLI's own sign-in; a developer's real one must
+  // not change what the tests see.
+  "CODEX_HOME",
 ];
 for (const key of Object.keys(process.env)) {
   const upperKey = key.toUpperCase();

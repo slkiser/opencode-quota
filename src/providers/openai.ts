@@ -3,9 +3,12 @@
  */
 
 import type { DebugDetail } from "../core/types.js";
+import { readCodexCliAuth } from "../lib/codex-cli-auth.js";
+import { sanitizeSingleLineDisplaySnippet } from "../lib/display-sanitize.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
 import {
   type OpenAILogin,
+  type OpenAIOAuthLogin,
   type OpenAIResult,
   openaiLoginsIdentity,
   queryOpenAIQuota,
@@ -41,6 +44,11 @@ function isTokenSharingLogin(row: CredentialRow): boolean {
   return row.value.methodID === TOKEN_SHARING_METHOD_ID;
 }
 
+/** Whether any stored login is a Sign in with ChatGPT one, which is what needs the CLI file. */
+function hasTokenSharingLogin(logins: readonly OpenAILogin[]): boolean {
+  return logins.some(({ row }) => isTokenSharingLogin(row));
+}
+
 /** A row that says why a login has no ChatGPT quota number. */
 function statusRow(text: string): ProviderRow {
   return {
@@ -52,6 +60,74 @@ function statusRow(text: string): ProviderRow {
     prominence: "primary",
     text,
   };
+}
+
+const TOKEN_SHARING_STATUS = "ChatGPT quota unavailable for Sign in with ChatGPT";
+
+/**
+ * The Codex CLI's sign-in, as a login this provider can query. OpenCode's token-sharing login
+ * cannot read ChatGPT quota (#316); the CLI's token can, so it stands in for the numbers - the
+ * source is named in `/quota_status`, and its account is checked before use.
+ */
+type CodexCliFallback =
+  | {
+      state: "configured";
+      login: Extract<OpenAIOAuthLogin, { state: "configured" }>;
+      location: string;
+    }
+  | { state: "missing"; location: string }
+  | { state: "unavailable"; detail: string; location: string };
+
+async function codexCliLogin(): Promise<CodexCliFallback> {
+  const auth = await readCodexCliAuth();
+  if (auth.state === "not-found") return { state: "missing", location: auth.location };
+  if (auth.state === "unavailable") {
+    return { state: "unavailable", detail: auth.detail, location: auth.location };
+  }
+  return {
+    state: "configured",
+    location: auth.location,
+    login: {
+      state: "configured",
+      sourceKey: "codex",
+      accessToken: auth.accessToken,
+      ...(auth.accountId ? { accountId: auth.accountId } : {}),
+      ...(auth.expiresAt ? { expiresAt: auth.expiresAt } : {}),
+    },
+  };
+}
+
+/** `/quota_status` lines for the Codex CLI sign-in the token-sharing fallback used. */
+function codexCliStatusDetails(
+  cli: CodexCliFallback,
+  accountMatch: "same" | "different" | "unknown",
+): DebugDetail[] {
+  // Always name the file that was looked at, so "no quota" answers "was the CLI even searched?".
+  return statusDetailsFromRecord({
+    codex_cli_state: cli.state,
+    codex_cli_sign_in: cli.location,
+    codex_cli_account: accountMatch,
+    codex_cli_expires_at:
+      cli.state === "configured" && cli.login.expiresAt
+        ? new Date(cli.login.expiresAt).toISOString()
+        : "(none)",
+  });
+}
+
+/** Whether the CLI sign-in may answer for this login: a different account never may. */
+function accountsMatch(
+  loginAccount: string | undefined,
+  cliAccount: string | undefined,
+): "same" | "different" | "unknown" {
+  if (!loginAccount || !cliAccount) return "unknown";
+  return loginAccount === cliAccount ? "same" : "different";
+}
+
+/** A rejected or expired CLI sign-in needs `codex login`; a network failure does not. */
+function isAuthFailure(result: OpenAIResult): boolean {
+  if (result.success) return false;
+  if (result.error === "Token expired") return true;
+  return result.facts?.status === 401 || result.facts?.status === 403;
 }
 
 /**
@@ -73,6 +149,11 @@ function sortActiveLoginsFirst(
     if (sessionOrder !== 0) return sessionOrder;
     return Number(left.value.type === "api") - Number(right.value.type === "api");
   });
+}
+
+/** The ChatGPT account id of a resolved login, when it carries one. */
+function loginAccountId(login: OpenAIOAuthLogin | undefined): string | undefined {
+  return login?.state === "configured" ? login.accountId : undefined;
 }
 
 function tokenStatus({ row, oauth: login }: OpenAILogin): string {
@@ -163,7 +244,16 @@ export const openaiProvider: QuotaProvider = {
   id: "openai",
   cachePolicy: {
     kind: "resolved-auth",
-    resolveIdentity: async () => openaiLoginsIdentity(await readOpenAILogins()),
+    resolveIdentity: async () => {
+      const logins = await readOpenAILogins();
+      // Only a token-sharing login reads the Codex CLI file, so only it can change these rows.
+      const codexCli = hasTokenSharingLogin(logins) ? await codexCliLogin() : null;
+      const cliLogin = codexCli?.state === "configured" ? codexCli.login : undefined;
+      return openaiLoginsIdentity(
+        logins,
+        cliLogin ? { accessToken: cliLogin.accessToken, accountId: cliLogin.accountId } : null,
+      );
+    },
   },
 
   async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
@@ -186,6 +276,15 @@ export const openaiProvider: QuotaProvider = {
         ?.providerId;
     const logins = sortActiveLoginsFirst(await readOpenAILogins(), currentIntegrationId);
     const requestTimeoutMs = ctx.config?.requestTimeoutMs;
+    // Read once per fetch: only a token-sharing login needs it, and a login that never falls back
+    // must not touch another credential file.
+    const needsCodexCli = hasTokenSharingLogin(logins);
+    const codexCli = needsCodexCli ? await codexCliLogin() : null;
+    const cliAccount = codexCli?.state === "configured" ? codexCli.login.accountId : undefined;
+    // The status lines describe the first token-sharing login, the one OpenCode uses when it is
+    // the active one; a second such login gets its own rows but not its own account verdict.
+    const tokenSharing = logins.find(({ row }) => isTokenSharingLogin(row));
+    const accountMatch = accountsMatch(loginAccountId(tokenSharing?.oauth), cliAccount);
     // Names span every stored account (OAuth and API key) so numbering and the
     // `(active)` marker match the accounts OpenCode actually holds.
     const accounts = await fetchEachLogin({
@@ -194,10 +293,39 @@ export const openaiProvider: QuotaProvider = {
       numberUnnamed: (row) => row.value.type === "api",
       async fetchLogin({ row, oauth: login }) {
         if (isTokenSharingLogin(row)) {
-          return {
-            rows: [statusRow("ChatGPT quota unavailable for Sign in with ChatGPT")],
-            errors: [],
-          };
+          if (!codexCli || codexCli.state === "missing") {
+            return { rows: [statusRow(TOKEN_SHARING_STATUS)], errors: [] };
+          }
+          if (codexCli.state === "unavailable") {
+            const detail = sanitizeSingleLineDisplaySnippet(codexCli.detail, 120);
+            return { rows: [statusRow(`${TOKEN_SHARING_STATUS}: ${detail}`)], errors: [] };
+          }
+          // Never attribute another account's limits to this login.
+          if (accountsMatch(loginAccountId(login), codexCli.login.accountId) === "different") {
+            return {
+              rows: [
+                statusRow(
+                  "ChatGPT quota unavailable: the Codex CLI sign-in belongs to a different ChatGPT account. Run `codex login` to switch it.",
+                ),
+              ],
+              errors: [],
+            };
+          }
+          const result = await queryOpenAIQuota({ requestTimeoutMs, auth: codexCli.login });
+          if (!result.success) {
+            return {
+              rows: [],
+              errors: [
+                fetchError(
+                  `${result.error} (Codex CLI sign-in ${codexCli.location}${
+                    isAuthFailure(result) ? "; run `codex login` to renew it" : ""
+                  })`,
+                  result.facts,
+                ),
+              ],
+            };
+          }
+          return { rows: quotaWindowRows(result), errors: [], fallbackName: result.label };
         }
         if (row.value.type === "api") {
           if (row.resolveError !== undefined) {
@@ -221,7 +349,10 @@ export const openaiProvider: QuotaProvider = {
       },
     });
 
-    const debug = activeLoginStatusDetails(logins);
+    const debug = [
+      ...activeLoginStatusDetails(logins),
+      ...(codexCli ? codexCliStatusDetails(codexCli, accountMatch) : []),
+    ];
     if (accounts.length > 0) return { attempted: true, accounts, debug };
     return { ...(await fetchActiveLoginQuota(requestTimeoutMs)), debug };
   },
