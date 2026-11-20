@@ -1014,6 +1014,18 @@ const GOOGLE_DETAILS: DebugRules = {
 };
 const CONSOLE_AUTH_STATES = ["none", "configured", "expired", "invalid"] as const;
 
+/**
+ * The Code share of the monthly pool: a fraction of 0..1, shown as a percentage of the pool.
+ * With a login in front of it (`<login id>: 0.08`), the share belongs to that login.
+ */
+const kimiCodeRatio: DebugRule = (value) => {
+  const [head, ratio = head] = value.split(": ");
+  const share = Number(ratio);
+  if (!Number.isFinite(share) || share < 0 || share > 1) return undefined;
+  const percent = formatShare(share);
+  return head === ratio ? percent : `${head}: ${percent}`;
+};
+
 /** Both plans write the same availability, platform and failure kind, so they share these rules. */
 const ALIBABA_PROVIDER_DETAILS: DebugRules = {
   cli_available: bool,
@@ -1148,8 +1160,11 @@ const DEBUG_DETAILS = {
   xai: {},
   "minimax-coding-plan": { api_endpoint: oneOf("international", "china") },
   "minimax-china-coding-plan": { api_endpoint: oneOf("international", "china") },
-  "kimi-code-plan-global": { api_endpoint: oneOf("global", "cn") },
-  "kimi-code-plan-cn": { api_endpoint: oneOf("global", "cn") },
+  "kimi-code-plan-global": {
+    api_endpoint: oneOf("global", "cn"),
+    monthly_code_ratio: kimiCodeRatio,
+  },
+  "kimi-code-plan-cn": { api_endpoint: oneOf("global", "cn"), monthly_code_ratio: kimiCodeRatio },
   xiaomi: {
     config_state: oneOf("none", "configured", "invalid"),
     config_source: keySource,

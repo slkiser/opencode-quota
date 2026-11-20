@@ -83,7 +83,7 @@ describe.each(ENDPOINTS)("MiniMax $endpoint", (endpoint) => {
     expect(requestHeader(init, "Authorization")).toBe("Bearer env-key");
     expect(fetched.error).toBeUndefined();
     expect(rowSummary(fetched.rows)).toEqual([
-      [`${id}.five_hour`, null, "5h", "five_hour", endpoint.fiveHour, IN_ONE_HOUR],
+      [`${id}.five_hour`, null, "5 Hour", "five_hour", endpoint.fiveHour, IN_ONE_HOUR],
       [`${id}.weekly`, null, "Weekly", "week", endpoint.weekly, IN_ONE_DAY],
     ]);
   });
@@ -102,7 +102,7 @@ describe.each(ENDPOINTS)("MiniMax $endpoint", (endpoint) => {
     const fetched = await fetchRows(provider);
 
     expect(rowSummary(fetched.rows)).toEqual([
-      [`${id}.five_hour`, null, "5h", "five_hour", 86, IN_ONE_HOUR],
+      [`${id}.five_hour`, null, "5 Hour", "five_hour", 86, IN_ONE_HOUR],
       [`${id}.weekly`, null, "Weekly", "week", 90, IN_ONE_DAY],
     ]);
   });
@@ -154,7 +154,7 @@ describe.each(ENDPOINTS)("MiniMax $endpoint", (endpoint) => {
     const fetched = await fetchRows(provider);
 
     expect(rowSummary(fetched.rows)).toEqual([
-      [`${id}.five_hour`, "Work", "5h", "five_hour", 40, IN_ONE_HOUR],
+      [`${id}.five_hour`, "Work", "5 Hour", "five_hour", 40, IN_ONE_HOUR],
     ]);
     expect(fetched.rowLogins).toEqual(["work"]);
     // The broken login comes first, so its error is the one shown.
@@ -208,7 +208,7 @@ describe("MiniMax model choice", () => {
     const fetched = await fetchRows(minimaxCodingPlanProvider);
 
     expect(rowSummary(fetched.rows)).toEqual([
-      ["minimax-coding-plan.five_hour", null, "5h", "five_hour", value, IN_ONE_HOUR],
+      ["minimax-coding-plan.five_hour", null, "5 Hour", "five_hour", value, IN_ONE_HOUR],
     ]);
   });
 

@@ -45,6 +45,25 @@ export function visibleRow(row: QuotaRow, names: Readonly<Record<string, string>
   return { row, label: name ?? row.label, named: name !== undefined };
 }
 
+/**
+ * A provider's rows as a page without account headings lists them: each row's own name, with its
+ * account in front only where two of the provider's rows would otherwise read the same
+ * ("team rmpub · Monthly", "Monthly").
+ */
+export function distinctRowLabels(
+  rows: readonly QuotaRow[],
+  names: Readonly<Record<string, string>>,
+): VisibleRow[] {
+  const named = rows.map((row) => visibleRow(row, names));
+  const counts = new Map<string, number>();
+  for (const { label } of named) counts.set(label, (counts.get(label) ?? 0) + 1);
+  return named.map((item) =>
+    (counts.get(item.label) ?? 0) > 1 && item.row.account
+      ? { ...item, label: `${item.row.account} · ${item.label}` }
+      : item,
+  );
+}
+
 /** One provider account on a surface: its title, its rows, and its last error. */
 export type Group = {
   /** Provider id, or `${providerId} (account)` when it has several accounts. */

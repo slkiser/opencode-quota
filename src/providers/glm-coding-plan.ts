@@ -3,6 +3,7 @@
  * is queried as its own account; without stored keys, the key the resolver finds is.
  */
 
+import { WINDOWS } from "../core/windows.js";
 import { API_KEY_VENDORS, type ApiKeyLoginSpec, readVendorKeys } from "../lib/api-key-resolver.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
@@ -68,7 +69,7 @@ type GlmWindow = { percentRemaining: number; resetTimeIso?: string };
 
 type GlmReply = { success: true; rows: ProviderRow[] } | QuotaError;
 
-const MCP = { key: "mcp", label: "MCP", window: "mcp" } as const;
+const MCP = { key: "mcp", label: WINDOWS.mcp.label, window: "mcp" } as const;
 
 /**
  * The percent left: from exact credit values when a credit limit has them, else reported. The

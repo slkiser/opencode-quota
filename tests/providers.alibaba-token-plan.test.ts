@@ -56,22 +56,20 @@ beforeEach(() => {
 
 /** The provider's fetch, with the ledger-row-key check every provider fetch shares. */
 async function fetchTokenPlan(requestTimeoutMs = 5_000) {
-  const fetched = rowsFromProviderResult(
-    "alibaba-token-plan",
-    await alibabaTokenPlanProvider.fetch({
-      workspaceRoot: paths.project,
-      locationDirectory: paths.project,
-      // The provider takes the user's timeout only when the settings say one is set.
-      config: { requestTimeoutMs, requestTimeoutMsConfigured: true },
-    } as never),
-  );
+  const result = await alibabaTokenPlanProvider.fetch({
+    workspaceRoot: paths.project,
+    locationDirectory: paths.project,
+    // The provider takes the user's timeout only when the settings say one is set.
+    config: { requestTimeoutMs, requestTimeoutMsConfigured: true },
+  } as never);
+  const fetched = rowsFromProviderResult("alibaba-token-plan", result);
   for (const row of fetched.rows) {
     expect(
       isLedgerRowKey("alibaba-token-plan", row.id.slice("alibaba-token-plan".length + 1)),
       row.id,
     ).toBe(true);
   }
-  return fetched;
+  return { ...fetched, accounts: result.accounts.map((account) => account.name) };
 }
 
 function seatJson(name: string, equity?: Record<string, number>): Record<string, unknown> {
@@ -89,8 +87,8 @@ const TEAM_LEAD_EQUITY = {
 const TEAM_LEAD = seatJson("team-lead", TEAM_LEAD_EQUITY);
 const TEAM_LEAD_ROW = [
   "alibaba-token-plan.team.team_lead",
-  "team-lead",
-  "Credits",
+  "team team-lead",
+  "Monthly",
   "month",
   "68 (80000 credit of 250000 credit)",
   SEAT_RESET,
@@ -213,7 +211,7 @@ describe("alibaba-token-plan provider", () => {
         }),
       },
       [
-        ["alibaba-token-plan.personal.five_hour", "personal", "5h", "five_hour", 75, null],
+        ["alibaba-token-plan.personal.five_hour", "personal", "5 Hour", "five_hour", 75, null],
         ["alibaba-token-plan.personal.weekly", "personal", "Weekly", "week", 90, null],
         ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET],
       ],
@@ -233,7 +231,7 @@ describe("alibaba-token-plan provider", () => {
           hasQuotaData: true,
         }),
       },
-      [["alibaba-token-plan.personal.five_hour", "personal", "5h", "five_hour", 75, null]],
+      [["alibaba-token-plan.personal.five_hour", "personal", "5 Hour", "five_hour", 75, null]],
       undefined,
       [
         { key: "cli_available", value: "true" },
@@ -533,14 +531,15 @@ describe("alibaba-token-plan provider", () => {
   });
 
   it.runIf(SUPPORTED)(
-    "shows a team seat row with the account name as its own account name",
+    "shows a lone seat as its own team account, one row labeled with the window",
     async () => {
       installCli({ seats: replying(seatPage([TEAM_LEAD])) });
 
       const fetched = await fetchTokenPlan();
 
       expect(rowSummary(fetched.rows)).toEqual([TEAM_LEAD_ROW]);
-      expect(fetched.rows[0]?.account).toBe("team-lead");
+      expect(fetched.accounts).toEqual(["Alibaba Token Plan (team team-lead)"]);
+      expect(fetched.rows[0]?.account).toBe("team team-lead");
       expect(fetched.rows[0]?.id).toBe("alibaba-token-plan.team.team_lead");
       // A personal reply with no window is an absence, so the seats stand alone and nothing fails.
       expect(fetched.error).toBeUndefined();
@@ -553,6 +552,29 @@ describe("alibaba-token-plan provider", () => {
       ]);
     },
   );
+
+  it.runIf(SUPPORTED)("names each seat in the account title", async () => {
+    installCli({
+      seats: replying(
+        seatPage([
+          seatJson("team-lead", { CycleTotalValue: 100, CycleSurplusValue: 40 }),
+          seatJson("Alice", { CycleTotalValue: 100, CycleSurplusValue: 40 }),
+        ]),
+      ),
+    });
+
+    const fetched = await fetchTokenPlan();
+
+    // The account title tells the two teams apart; the label names the window, as other providers do.
+    expect(fetched.accounts).toEqual([
+      "Alibaba Token Plan (team team-lead)",
+      "Alibaba Token Plan (team Alice)",
+    ]);
+    expect(fetched.rows.map((row) => [row.id, row.account, row.label])).toEqual([
+      ["alibaba-token-plan.team.team_lead", "team team-lead", "Monthly"],
+      ["alibaba-token-plan.team.alice", "team Alice", "Monthly"],
+    ]);
+  });
 
   it.runIf(SUPPORTED)("shows both the personal window and the team seats", async () => {
     installCli({
@@ -586,8 +608,8 @@ describe("alibaba-token-plan provider", () => {
     expect(rowSummary(fetched.rows)).toEqual([
       [
         "alibaba-token-plan.team.zero",
-        "zero",
-        "Credits",
+        "team zero",
+        "Monthly",
         "month",
         "0 credit (0 credit of 0 credit)",
         null,
@@ -636,8 +658,8 @@ describe("alibaba-token-plan provider", () => {
       const fetched = await fetchTokenPlan();
 
       expect(fetched.rows.map((row) => [row.id, row.account])).toEqual([
-        ["alibaba-token-plan.team.seat_1d841bc0", "张三"],
-        ["alibaba-token-plan.team.john_doe", "John Doe"],
+        ["alibaba-token-plan.team.seat_1d841bc0", "team 张三"],
+        ["alibaba-token-plan.team.john_doe", "team John Doe"],
       ]);
       expect(fetched.debug.filter((item) => item.key === "dropped_row")).toEqual([]);
     },
@@ -680,8 +702,8 @@ describe("alibaba-token-plan provider", () => {
       const fetched = await fetchTokenPlan();
 
       expect(fetched.rows.map((row) => [row.id, row.account])).toEqual([
-        ["alibaba-token-plan.team.john_doe_6cea57c2", "John Doe"],
-        ["alibaba-token-plan.team.john_doe_7679aa58", "John-Doe"],
+        ["alibaba-token-plan.team.john_doe_6cea57c2", "team John Doe"],
+        ["alibaba-token-plan.team.john_doe_7679aa58", "team John-Doe"],
       ]);
     },
   );

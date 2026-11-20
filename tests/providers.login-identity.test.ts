@@ -142,7 +142,7 @@ const VENDORS: Vendor[] = [
     reply: () => ({ buckets: [{ modelId: "gemini-2.5-pro", remainingFraction: 0.5 }] }),
   },
   keyVendor("kimi-code-plan-global", "kimi-code-plan-global", {
-    usage: { limit: 100, used: 50 },
+    usages: { limit_5h: { used_ratio: 0.5 } },
   }),
   keyVendor("deepseek", "deepseek", {
     balance_infos: [{ currency: "USD", total_balance: "1.00" }],

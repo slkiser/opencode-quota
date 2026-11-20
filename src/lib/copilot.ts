@@ -193,6 +193,7 @@ interface CopilotInternalUserResponse {
       quota_remaining?: number;
       percent_remaining?: number;
       credits_used?: number;
+      token_based_billing?: boolean;
       unlimited?: boolean;
     };
   };
@@ -990,16 +991,21 @@ function parseCopilotInternalUser(
     reportedPercent !== undefined && reportedPercent >= 0 && reportedPercent <= 100
       ? reportedPercent
       : undefined;
-  const tokenBasedBilling = response.token_based_billing === true;
+  // The live reply nests the flag in the snapshot; older replies put it at the top level.
+  const tokenBasedBilling =
+    response.token_based_billing === true || snapshot?.token_based_billing === true;
+  // Token billing spends AI credits, so the row is a credit count, not a unit name.
+  const creditsUsed = finiteNumber(snapshot?.credits_used);
+  const hasCreditsUsed = tokenBasedBilling && creditsUsed !== undefined && creditsUsed >= 0;
 
   if (entitlement !== undefined && entitlement > 0 && remaining !== undefined) {
     if (remaining >= 0 && remaining <= entitlement) {
       return {
         success: true,
         mode: "user_quota",
-        unit: "premium_interactions",
-        used: entitlement - remaining,
-        authority: "locally_derived",
+        unit: hasCreditsUsed ? "ai_credits" : "premium_interactions",
+        used: hasCreditsUsed ? creditsUsed : entitlement - remaining,
+        authority: hasCreditsUsed ? "provider_reported" : "locally_derived",
         total: entitlement,
         // An invalid reported percentage is dropped, not replaced by a derived one.
         percentRemaining:
@@ -1014,8 +1020,6 @@ function parseCopilotInternalUser(
     // Token-based billing reports a negative remaining once usage goes over the
     // entitlement, alongside a provider-reported clamp in [0, 100].
     if (tokenBasedBilling && remaining < 0 && validReportedPercent !== undefined) {
-      const creditsUsed = finiteNumber(snapshot?.credits_used);
-      const hasCreditsUsed = creditsUsed !== undefined && creditsUsed >= 0;
       return {
         success: true,
         mode: "user_quota",

@@ -92,6 +92,42 @@ describe("the Settings tree's lines and edits", () => {
           `${line.window ? ` ‹${line.window}›` : ""} · ${line.detail}`,
       );
 
+  it("names the account only where two rows of one provider would read the same", () => {
+    // A provider with two accounts, each holding the same monthly window; and one with a single
+    // account, whose rows need no account.
+    const twoAccounts = snapshot([
+      providerSnapshot("alibaba-token-plan", "Alibaba Token Plan", [
+        quotaRow("alibaba-token-plan.team.rmpub", {
+          label: "Monthly",
+          window: "month",
+          percentRemaining: 36,
+          account: "team rmpub",
+        }),
+        quotaRow("alibaba-token-plan.team.etfpub", {
+          label: "Monthly",
+          window: "month",
+          percentRemaining: 55,
+          account: "team etfpub",
+        }),
+      ]),
+      providerSnapshot("copilot", "Copilot", [
+        quotaRow("copilot.allowance", { label: "Monthly", window: "month", percentRemaining: 94 }),
+      ]),
+    ]);
+
+    expect(
+      surfaceEditor("sidebar", twoAccounts)
+        .lines(SETTINGS, NOW)
+        .map((line) => line.label),
+    ).toEqual([
+      "Alibaba Token Plan",
+      "team rmpub · Monthly",
+      "team etfpub · Monthly",
+      "Copilot",
+      "Monthly",
+    ]);
+  });
+
   it("shows each row's name and numbers on Sidebar, or why it shows none", () => {
     const renamed = setIn(SETTINGS, ["sidebar", "names", "claude.5h"], "Session");
     expect(

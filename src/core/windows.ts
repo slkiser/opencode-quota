@@ -19,7 +19,7 @@ type WindowInfo = {
 export const WINDOWS: Readonly<Record<QuotaWindow, WindowInfo>> = {
   rpm: { label: "Per minute", short: "1m", lengthMs: 60_000, resets: false },
   hour: { label: "Hourly", short: "1h", lengthMs: HOUR_MS, resets: true },
-  five_hour: { label: "5h", short: "5h", lengthMs: 5 * HOUR_MS, resets: true },
+  five_hour: { label: "5 Hour", short: "5h", lengthMs: 5 * HOUR_MS, resets: true },
   session: { label: "Session", short: "Sess", resets: false },
   day: { label: "Daily", short: "1d", lengthMs: DAY_MS, resets: true },
   week: { label: "Weekly", short: "7d", lengthMs: 7 * DAY_MS, resets: true },
@@ -28,6 +28,19 @@ export const WINDOWS: Readonly<Record<QuotaWindow, WindowInfo>> = {
   mcp: { label: "MCP", short: "MCP", resets: false },
   code_review: { label: "Code review", short: "Rev", resets: false },
 };
+
+/** Every window in display order: short to long, the order this table lists them. */
+export const WINDOW_ORDER: readonly QuotaWindow[] = Object.keys(WINDOWS) as QuotaWindow[];
+
+const WINDOW_RANK = new Map<QuotaWindow, number>(
+  WINDOW_ORDER.map((window, index) => [window, index]),
+);
+
+/** Where a window sits in `WINDOW_ORDER`; a window of no kind sorts after all of them. */
+export function windowRank(window: QuotaWindow | undefined): number {
+  const rank = window ? WINDOW_RANK.get(window) : undefined;
+  return rank ?? WINDOW_ORDER.length;
+}
 
 /**
  * The key of `collapsed.window` and `statusLine.window` that picks the window of every provider
@@ -46,8 +59,9 @@ const WINDOW_PATTERNS: ReadonlyArray<readonly [QuotaWindow, RegExp]> = [
   ["hour", /\b(?:hourly|1h|1 h|1-hour|1 hour|hour)\b/u],
   ["session", /\bsession\b/u],
   ["week", /\b(?:7d|7 d|7-day|7 day|weekly|week)\b/u],
+  // Above `day`, whose bare word would take "30 day"; the month has no fixed length.
+  ["month", /\b(?:monthly|month|30d|30 d|30-day|30 day)\b/u],
   ["day", /\b(?:daily|1d|1 d|1-day|1 day|day)\b/u],
-  ["month", /\b(?:monthly|month)\b/u],
   ["year", /\b(?:yearly|annual|annually|year)\b/u],
   ["mcp", /\bmcp\b/u],
   ["code_review", /\bcode review\b/u],

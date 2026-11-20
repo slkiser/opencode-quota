@@ -4,10 +4,13 @@ import { rowsFromProviderResult } from "../src/core/rows.js";
 import type { CredentialRow } from "../src/lib/opencode-auth.js";
 import {
   FIVE_HOUR,
+  MONTHLY,
+  WEEKLY,
   fetchEachLogin,
   type ProviderFetchResult,
   type ProviderRow,
   quotaRow,
+  windowRows,
 } from "../src/providers/contract.js";
 import { fetchStoredKeys } from "../src/providers/key-vendor.js";
 
@@ -131,6 +134,29 @@ describe("rowsFromProviderResult on the row contract", () => {
     expect(
       rowsFromProviderResult("anthropic", { attempted: false, accounts: [], debug: [] }, NOW_MS),
     ).toEqual({ rows: [], error: { code: "not_configured" }, debug: [] });
+  });
+});
+
+describe("windowRows", () => {
+  it("puts the windows short to long whatever order the provider lists them", () => {
+    const rows = windowRows([
+      { slot: MONTHLY, value: { percentRemaining: 30 } },
+      { slot: FIVE_HOUR, value: { percentRemaining: 10 } },
+      // Same window as MONTHLY: equal ranks keep the order they were given in.
+      {
+        slot: { key: "monthly_extra", label: "Monthly extra", window: "month" },
+        value: { percentRemaining: 25 },
+      },
+      { slot: WEEKLY, value: { percentRemaining: 20 } },
+      { slot: WEEKLY, value: undefined },
+    ]);
+
+    expect(rows.map((row) => [row.key, row.window, row.percentRemaining])).toEqual([
+      ["five_hour", "five_hour", 10],
+      ["weekly", "week", 20],
+      ["monthly", "month", 30],
+      ["monthly_extra", "month", 25],
+    ]);
   });
 });
 

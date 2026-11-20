@@ -5,6 +5,7 @@
  * into the shared provider/result boundary.
  */
 
+import { WINDOWS } from "../core/windows.js";
 import {
   type CopilotQuotaAuthDiagnostics,
   copilotLoginsIdentity,
@@ -161,17 +162,21 @@ function budgetRow(budget: CopilotBudgetResult, resetTimeIso?: string): Provider
   return { ...row, text };
 }
 
+/**
+ * The unit each billing kind counts in. The row's label is the window it measures (the monthly
+ * allowance), whatever the unit: the counts carry their unit.
+ */
 const ALLOWANCE_UNITS = {
-  ai_credits: { label: "Credits", unit: "credit" },
-  premium_interactions: { label: "Premium interactions", unit: "interaction" },
-  premium_requests: { label: "Premium requests", unit: "request" },
+  ai_credits: { unit: "credit" },
+  premium_interactions: { unit: "interaction" },
+  premium_requests: { unit: "request" },
 } as const;
 
 function personalRow(result: CopilotQuotaResult): ProviderRow {
   const allowance = ALLOWANCE_UNITS[result.unit] ?? ALLOWANCE_UNITS.premium_requests;
   const base = {
     key: "allowance",
-    label: allowance.label,
+    label: WINDOWS.month.label,
     authority: result.authority,
     window: "month" as const,
     resetTimeIso: result.resetTimeIso,
@@ -220,7 +225,7 @@ function resultRows(result: CopilotSuccessResult): ProviderRow[] {
     {
       ...copilotRow({
         key: "allowance",
-        label: "Credits",
+        label: WINDOWS.month.label,
         type: "usage",
         authority: result.authority,
         window: "month",

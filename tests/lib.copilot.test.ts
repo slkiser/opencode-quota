@@ -355,6 +355,44 @@ describe("Copilot OAuth internal user quota", () => {
       expect.objectContaining({ success: true, mode: "user_plan" }),
     ],
     [
+      "reports token-based credits under the entitlement as AI credits",
+      snapshot({
+        entitlement: 1500,
+        remaining: 1413,
+        percent_remaining: 94.2,
+        credits_used: 86,
+        token_based_billing: true,
+      }),
+      {
+        success: true,
+        mode: "user_quota",
+        unit: "ai_credits",
+        used: 86,
+        authority: "provider_reported",
+        total: 1500,
+        percentRemaining: 94.2,
+        plan: "enterprise",
+        resetTimeIso: "2026-02-01T00:00:00.000Z",
+      },
+    ],
+    [
+      "keeps premium interactions when the billing is not token-based",
+      {
+        token_based_billing: false,
+        ...snapshot({
+          entitlement: 1500,
+          remaining: 1413,
+          percent_remaining: 94.2,
+          credits_used: 86,
+        }),
+      },
+      expect.objectContaining({
+        unit: "premium_interactions",
+        used: 87,
+        authority: "locally_derived",
+      }),
+    ],
+    [
       "keeps token-based placeholders plan-only",
       {
         copilot_plan: "business",
@@ -419,6 +457,31 @@ describe("Copilot OAuth internal user quota", () => {
     signIn();
     stubFetch(() => json(copilotUser(overrides)));
     await expect(query()).resolves.toEqual(expected);
+  });
+
+  it("reads the token-billing flag nested in the snapshot", async () => {
+    signIn();
+    stubFetch(() =>
+      json({
+        copilot_plan: "business",
+        quota_reset_date_utc: "2026-02-01T00:00:00.000Z",
+        quota_snapshots: {
+          premium_interactions: {
+            entitlement: 1500,
+            remaining: 1413,
+            percent_remaining: 94.2,
+            credits_used: 86,
+            token_based_billing: true,
+          },
+        },
+      }),
+    );
+
+    await expect(query()).resolves.toMatchObject({
+      unit: "ai_credits",
+      used: 86,
+      total: 1500,
+    });
   });
 
   it.each(["acme.ghe.com", "https://acme.ghe.com"])(

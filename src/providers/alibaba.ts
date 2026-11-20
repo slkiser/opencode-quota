@@ -269,12 +269,16 @@ function tokenPlanNoDataDetails(
   ];
 }
 
+/**
+ * A seat's row: the label names the window it measures, like every other window row. The seat
+ * itself is the account's name ("Alibaba Token Plan (team rmpub)"), so the row does not repeat it.
+ */
 function seatRow(seat: AlibabaTokenPlanSeat, key: string): ProviderRow {
   // Only `percentRemaining` or `amount` satisfy `core/validate.ts`, and both need a surplus.
   const hasValue = seat.percentRemaining !== undefined || seat.surplus !== undefined;
   return {
     key: `team.${key}`,
-    label: "Credits",
+    label: WINDOWS.month.label,
     type: "quota",
     method: "local_cli",
     authority: "provider_reported",
@@ -523,11 +527,14 @@ const TOKEN_PLAN_COMMANDS: readonly AlibabaCommand[] = [
       const keys = seatKeys(result.seats);
       return {
         ok: true,
-        accounts: result.seats.map((seat, index) => ({
-          name: withSuffix(TOKEN_PLAN_LABEL, seat.name),
-          rows: [seatRow(seat, keys[index] ?? "seat")],
-          errors: [],
-        })),
+        accounts: result.seats.map((seat, index) => {
+          const key = keys[index] ?? "seat";
+          return {
+            name: withSuffix(TOKEN_PLAN_LABEL, `team ${seat.name || key}`),
+            rows: [seatRow(seat, key)],
+            errors: [],
+          };
+        }),
         debug: result.seats.length > 0 ? [{ key: "seat_windows", value: "credits" }] : [],
       };
     },

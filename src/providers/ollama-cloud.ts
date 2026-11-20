@@ -6,6 +6,7 @@
 
 import type { ErrorFacts } from "../core/errors.js";
 import type { Amount, DebugDetail } from "../core/types.js";
+import { WINDOWS } from "../core/windows.js";
 import { API_KEY_VENDORS, readVendorKeys } from "../lib/api-key-resolver.js";
 import { sanitizeSingleLineDisplayText } from "../lib/display-sanitize.js";
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
@@ -30,7 +31,7 @@ const LABEL = "Ollama Cloud";
 const SPEC = API_KEY_VENDORS["ollama-cloud"];
 const OLLAMA_CLOUD_BALANCE_URL = "https://ollama.com/api/balance";
 const MAX_RESPONSE_BYTES = 256 * 1024;
-const SESSION = { key: "session", label: "Session", window: "session" } as const;
+const SESSION = { key: "session", label: WINDOWS.session.label, window: "session" } as const;
 const NO_DATA = "Ollama Cloud returned no limits or balance";
 
 /** A legacy plan's session or weekly limit. */

@@ -35,7 +35,7 @@ const USAGE_REPLY = {
   },
 };
 const USAGE_ROWS = [
-  ["opencode-go.five_hour", null, "5h", "five_hour", 87.5, "2026-10-10T12:30:00.000Z"],
+  ["opencode-go.five_hour", null, "5 Hour", "five_hour", 87.5, "2026-10-10T12:30:00.000Z"],
   ["opencode-go.weekly", null, "Weekly", "week", 0, "2026-10-12T16:00:00.000Z"],
   ["opencode-go.monthly", null, "Monthly", "month", 20, "2026-11-01T04:00:00.000Z"],
 ];
@@ -52,7 +52,7 @@ const CONSOLE_REPLY = {
   },
 };
 const CONSOLE_ROWS = [
-  ["opencode-go.five_hour", null, "5h", "five_hour", 75, "2026-10-10T15:00:00.000Z"],
+  ["opencode-go.five_hour", null, "5 Hour", "five_hour", 75, "2026-10-10T15:00:00.000Z"],
   ["opencode-go.weekly", null, "Weekly", "week", 0, "2026-11-02T12:00:00.000Z"],
   ["opencode-go.monthly", null, "Monthly", "month", 50, "2026-11-01T00:00:00.000Z"],
 ];

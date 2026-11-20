@@ -268,9 +268,9 @@ describe("Google AGY rows", () => {
       },
       [
         ["google-agy.gemini.weekly", "Gemini Weekly", "week", 58, "2026-06-22T00:00:00.000Z"],
-        ["google-agy.gemini.five_hour", "Gemini 5h", "five_hour", 25, undefined],
+        ["google-agy.gemini.five_hour", "Gemini 5 Hour", "five_hour", 25, undefined],
         ["google-agy.claude_gpt.weekly", "Claude/GPT Weekly", "week", 100, undefined],
-        ["google-agy.claude_gpt.five_hour", "Claude/GPT 5h", "five_hour", 90, undefined],
+        ["google-agy.claude_gpt.five_hour", "Claude/GPT 5 Hour", "five_hour", 90, undefined],
       ],
     ],
     [

@@ -25,6 +25,7 @@ import {
   rowValueText,
 } from "../src/view/format.js";
 import {
+  distinctRowLabels,
   pickRow,
   type RowSettings,
   type Surface,
@@ -348,6 +349,21 @@ describe("view select", () => {
     expect(groups.map((group) => [group.id, group.title])).toEqual([
       ["copilot (work)", "Copilot (work)"],
       ["copilot (home)", "Copilot (home)"],
+    ]);
+  });
+
+  it("names the account only where two rows of one provider would read the same", () => {
+    const items = [
+      row("kimi.five_hour", { account: "work", label: "5 Hour" }),
+      row("kimi.weekly", { account: "work", label: "Weekly" }),
+      row("kimi.monthly", { account: "home", label: "5 Hour" }),
+      row("kimi.extra", { label: "Balance" }),
+    ];
+    expect(distinctRowLabels(items, {}).map((item) => item.label)).toEqual([
+      "work · 5 Hour",
+      "Weekly",
+      "home · 5 Hour",
+      "Balance",
     ]);
   });
 

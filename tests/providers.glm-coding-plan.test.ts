@@ -80,7 +80,7 @@ describe.each(VENDORS)("$label coding plan", (vendor) => {
     );
 
     expect(rowSummary(fetched.rows)).toEqual([
-      [`${vendor.id}.five_hour`, null, "5h", "five_hour", 80, FIVE_HOUR_RESET],
+      [`${vendor.id}.five_hour`, null, "5 Hour", "five_hour", 80, FIVE_HOUR_RESET],
       [`${vendor.id}.weekly`, null, "Weekly", "week", 30, WEEKLY_RESET],
       [`${vendor.id}.mcp`, null, "MCP", "mcp", 90, null],
     ]);
