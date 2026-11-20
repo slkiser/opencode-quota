@@ -757,6 +757,80 @@ describe("Claude CLI probe", () => {
 });
 
 describe("OAuth credential sources", () => {
+  it.each([undefined, ""])(
+    "uses the default credentials path when CLAUDE_CONFIG_DIR is %j",
+    async (directory) => {
+      vi.stubEnv("CLAUDE_CONFIG_DIR", directory);
+      setUpCredentialsFileFallback(1);
+      fetchResponseMock.mockResolvedValue(mockResponse(200, USAGE_10_20));
+
+      await getAnthropicDiagnostics();
+
+      expect(readFileMock).toHaveBeenCalledWith(join(homedir(), CREDENTIALS_FILE), "utf8");
+    },
+  );
+
+  it.each([join(homedir(), "claude-work"), "C:\\Users\\example\\.claude-work"])(
+    "reads the configured directory %s without expanding or prefixing it",
+    async (directory) => {
+      vi.stubEnv("CLAUDE_CONFIG_DIR", directory);
+      setUpCredentialsFileFallback(1);
+      fetchResponseMock.mockResolvedValue(mockResponse(200, USAGE_10_20));
+
+      const diagnostics = await getAnthropicDiagnostics();
+
+      expect(readFileMock).toHaveBeenCalledExactlyOnceWith(
+        join(directory, ".credentials.json"),
+        "utf8",
+      );
+      expect(diagnostics.quota?.five_hour?.percentRemaining).toBe(90);
+    },
+  );
+
+  it("isolates availability, diagnostics and credential identity across directory switches", async () => {
+    const defaultPath = join(homedir(), CREDENTIALS_FILE);
+    const workDirectory = join(homedir(), ".claude-work");
+    const workPath = join(workDirectory, ".credentials.json");
+    vi.stubEnv("CLAUDE_CONFIG_DIR", undefined);
+    setUpCredentialsFileFallback(2);
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path !== defaultPath && path !== workPath) throw ENOENT_ERROR;
+      return JSON.stringify({
+        claudeAiOauth: { accessToken: path === workPath ? "work-secret" : "personal-secret" },
+      });
+    });
+    fetchResponseMock
+      .mockResolvedValueOnce(mockResponse(200, USAGE_10_20))
+      .mockResolvedValueOnce(
+        mockResponse(200, { five_hour: { utilization: 70 }, seven_day: { utilization: 80 } }),
+      );
+
+    await expect(
+      hasAnthropicCredentialsConfigured({ useClaudeCodeCredentials: true }),
+    ).resolves.toBe(true);
+    const personal = await getAnthropicDiagnostics();
+    const personalIdentity = await anthropicLoginsIdentity([]);
+    vi.stubEnv("CLAUDE_CONFIG_DIR", workDirectory);
+    await expect(
+      hasAnthropicCredentialsConfigured({ useClaudeCodeCredentials: true }),
+    ).resolves.toBe(true);
+    const work = await getAnthropicDiagnostics();
+    const workIdentity = await anthropicLoginsIdentity([]);
+    vi.stubEnv("CLAUDE_CONFIG_DIR", "");
+    expect(await getAnthropicDiagnostics()).toEqual(personal);
+
+    expect(personal.quota?.five_hour?.percentRemaining).toBe(90);
+    expect(work.quota?.five_hour?.percentRemaining).toBe(30);
+    expect(execFileMock).toHaveBeenCalledTimes(4);
+    expect(bearerTokensSent()).toEqual(["Bearer personal-secret", "Bearer work-secret"]);
+    expect(personalIdentity).not.toBeNull();
+    expect(workIdentity).not.toBeNull();
+    expect(workIdentity).not.toEqual(personalIdentity);
+    expect(JSON.stringify([personal, work, personalIdentity, workIdentity])).not.toMatch(
+      /personal-secret|work-secret/u,
+    );
+  });
+
   it("falls back to Claude OAuth usage when local Claude auth omits quota windows", async () => {
     setUpCredentialsFileFallback(1);
     fetchResponseMock.mockResolvedValue(
