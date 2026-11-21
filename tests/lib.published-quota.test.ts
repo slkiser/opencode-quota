@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createPublishedQuota } from "../src/lib/published-quota.js";
 import { validateQuotaProviders } from "../src/lib/quota-providers.js";
 
@@ -19,14 +19,51 @@ describe("published quota", () => {
   it("reads only valid snapshots, until withdrawn or expired", () => {
     let now = 0;
     const quota = createPublishedQuota(() => now);
-    expect(quota.publish("alpha", publication)).toBe(true);
-    expect(quota.publish("alpha", { ...publication, entries: [{}] })).toBe(false);
-    expect(quota.read("alpha")).toMatchObject([{ percentRemaining: 25 }]);
+    quota.reconcile(["alpha"]);
+    const publish = (body: unknown) => quota.publish("alpha", quota.probe("alpha"), body);
+    expect(publish(publication)).toBe(true);
+    expect(publish({ ...publication, entries: [{}] })).toBe(false);
+    expect(quota.read("alpha")).toMatchObject({ rows: [{ percentRemaining: 25 }] });
     expect(quota.read("beta")).toBeUndefined();
-    expect(quota.publish("alpha", { version: "quota-v1", entries: [] })).toBe(true);
+    expect(publish({ version: "quota-v1", entries: [] })).toBe(true);
     expect(quota.read("alpha")).toBeUndefined();
-    quota.publish("alpha", publication);
+    publish(publication);
     now += 120_000;
     expect(quota.read("alpha")).toBeUndefined();
+    quota.clear();
+  });
+
+  it("rejects older, disabled, and pre-switch publication tickets", () => {
+    const quota = createPublishedQuota();
+    quota.reconcile(["alpha", "beta"]);
+    const old = quota.probe("alpha");
+    const newer = quota.probe("alpha");
+    expect(quota.publish("alpha", old, publication)).toBe(false);
+    expect(quota.publish("beta", newer, publication)).toBe(false);
+    expect(quota.publish("alpha", newer, publication)).toBe(true);
+    quota.clear();
+    expect(quota.read("alpha")).toBeUndefined();
+    expect(quota.publish("alpha", newer, publication)).toBe(false);
+    const enabled = quota.probe("alpha");
+    quota.reconcile(["beta"]);
+    expect(quota.probe("alpha")).toBeUndefined();
+    quota.reconcile(["alpha", "beta"]);
+    expect(quota.publish("alpha", enabled, publication)).toBe(false);
+  });
+
+  it("notifies an open view when a publication expires without another request", () => {
+    vi.useFakeTimers();
+    try {
+      const changed = vi.fn();
+      const quota = createPublishedQuota(Date.now, changed);
+      quota.reconcile(["alpha"]);
+      quota.publish("alpha", quota.probe("alpha"), publication);
+      changed.mockClear();
+      vi.advanceTimersByTime(120_000);
+      expect(quota.read("alpha")).toBeUndefined();
+      expect(changed).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

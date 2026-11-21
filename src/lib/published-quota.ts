@@ -1,37 +1,70 @@
+import { randomUUID } from "node:crypto";
 import type { ProviderRow } from "../providers/contract.js";
 import { parseQuotaV1 } from "./quota-providers-remote.js";
 
 const MAX_AGE_MS = 120_000;
 
-type Snapshot = { rows: ProviderRow[]; expiresAt: number; generation: number };
+type Snapshot = { rows: ProviderRow[]; receivedAt: number; timer: ReturnType<typeof setTimeout> };
 
-export function createPublishedQuota(now: () => number = Date.now) {
+export function createPublishedQuota(now: () => number = Date.now, changed = () => {}) {
   const snapshots = new Map<string, Snapshot>();
-  let generation = 0;
+  const tickets = new Map<string, string>();
+  let enabled = new Set<string>();
+
+  function remove(providerId: string): boolean {
+    const snapshot = snapshots.get(providerId);
+    if (!snapshot) return false;
+    clearTimeout(snapshot.timer);
+    return snapshots.delete(providerId);
+  }
+
   function fresh(providerId: string) {
     const snapshot = snapshots.get(providerId);
-    if (snapshot && snapshot.expiresAt > now()) return snapshot;
-    snapshots.delete(providerId);
+    if (snapshot && snapshot.receivedAt + MAX_AGE_MS > now()) return snapshot;
+  }
+
+  function clear() {
+    const hadRows = snapshots.size > 0;
+    for (const id of snapshots.keys()) remove(id);
+    tickets.clear();
+    if (hadRows) changed();
   }
 
   return {
-    clear: () => snapshots.clear(),
-    publish(providerId: string, body: unknown) {
+    clear,
+    reconcile(ids: readonly string[]) {
+      enabled = new Set(ids);
+      let removed = false;
+      for (const id of snapshots.keys()) {
+        if (!enabled.has(id)) removed = remove(id) || removed;
+      }
+      for (const id of tickets.keys()) if (!enabled.has(id)) tickets.delete(id);
+      if (removed) changed();
+    },
+    probe(providerId: string) {
+      if (!enabled.has(providerId)) return undefined;
+      const ticket = randomUUID();
+      tickets.set(providerId, ticket);
+      return ticket;
+    },
+    publish(providerId: string, ticket: string | undefined, body: unknown) {
+      if (!ticket || tickets.get(providerId) !== ticket) return false;
       const parsed = parseQuotaV1(body, true);
       if (!parsed.success) return false;
-      if (parsed.rows.length === 0) snapshots.delete(providerId);
-      else {
-        snapshots.set(providerId, {
-          rows: parsed.rows,
-          expiresAt: now() + MAX_AGE_MS,
-          generation: fresh(providerId)?.generation ?? ++generation,
-        });
+      tickets.delete(providerId);
+      const removed = remove(providerId);
+      if (parsed.rows.length) {
+        const timer = setTimeout(() => {
+          if (remove(providerId)) changed();
+        }, MAX_AGE_MS);
+        timer.unref();
+        snapshots.set(providerId, { rows: parsed.rows, receivedAt: now(), timer });
       }
+      if (removed || parsed.rows.length) changed();
       return true;
     },
-    read: (providerId: string) => fresh(providerId)?.rows,
-    generation: (providerId: string) => fresh(providerId)?.generation,
+    read: (providerId: string) => fresh(providerId),
   };
 }
 
-export type PublishedQuota = Pick<ReturnType<typeof createPublishedQuota>, "read" | "generation">;
+export type PublishedQuota = Pick<ReturnType<typeof createPublishedQuota>, "read">;

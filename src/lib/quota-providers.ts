@@ -9,6 +9,7 @@ import { isRecord } from "./json-guards.js";
 import { lookupCost } from "./modelsdev-pricing.js";
 import { priceMessage } from "./pricing-key.js";
 import { getCanonicalQuotaProviderId } from "./provider-metadata.js";
+import { isValidProviderId } from "./quota-provider-id.js";
 import { emptyTokenBuckets } from "./token-buckets.js";
 
 export const QUOTA_PROVIDER_REMOTE_FORMATS = ["quota-v1", "openrouter-key-v1", "json-v1"] as const;
@@ -333,14 +334,12 @@ const WINDOW_FIELDS = [
   "usdBudget",
 ] as const;
 const ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 const ASCII_OR_UNICODE_CONTROL_PATTERN = /\p{Cc}/u;
 const JSON_V1_STATIC_DISPLAY_FORBIDDEN_PATTERN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const URL_WHITESPACE_OR_CONTROL_PATTERN = /[\s\p{Cc}]/u;
 const MODEL_FORBIDDEN_PATTERN = /[\s\p{Cc}#?]/u;
 const MAX_ID_LENGTH = 64;
-const MAX_PROVIDER_ID_LENGTH = 64;
 const MAX_ENV_NAME_LENGTH = 128;
 const MAX_WINDOWS = 16;
 const MAX_ROLLING_MINUTES = 366 * 24 * 60;
@@ -388,15 +387,6 @@ function isValidId(value: unknown): value is string {
     value.length >= 1 &&
     value.length <= MAX_ID_LENGTH &&
     ID_PATTERN.test(value)
-  );
-}
-
-function isValidProviderId(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length >= 1 &&
-    value.length <= MAX_PROVIDER_ID_LENGTH &&
-    PROVIDER_ID_PATTERN.test(value)
   );
 }
 

@@ -180,21 +180,25 @@ describe("server quota RPC", () => {
       },
     });
     const { call, emit } = await setupServer({ openCodeProviders: ["fixture", "disabled"] });
-    const publish = (providerId: string, snapshot?: unknown) =>
-      call("publishQuota", { providerId, snapshot });
-    expect(await publish("unconfigured")).toEqual({ accepted: false });
-    expect(await publish("disabled")).toEqual({ accepted: false });
-    expect(await publish("fixture")).toEqual({ accepted: true });
+    const probe = (providerId: string) => call("publishQuota", { providerId });
+    const publish = async (snapshot: unknown) => {
+      const { ticket } = (await probe("fixture")) as { ticket: string };
+      return call("publishQuota", { providerId: "fixture", ticket, snapshot });
+    };
+    expect(await probe("unconfigured")).toEqual({ accepted: false });
+    expect(await probe("disabled")).toEqual({ accepted: false });
+    expect(await probe("fixture")).toEqual({ accepted: true, ticket: expect.any(String) });
+    await call("snapshot", {});
     const entries = [
       { name: "balance", kind: "value", resultType: "balance", value: "24 credits" },
     ];
-    expect(await publish("fixture", { version: "quota-v1", entries })).toEqual({ accepted: true });
+    expect(await publish({ version: "quota-v1", entries })).toEqual({ accepted: true });
     const published = {
       snapshot: { providers: [{ providerId: "quota-providers", rows: [{ text: "24 credits" }] }] },
     };
     expect(emit.mock.lastCall).toMatchObject(["changed", published]);
     expect(await call("snapshot", {})).toMatchObject(published);
-    expect(await publish("fixture", { version: "quota-v1", entries: [] })).toEqual({
+    expect(await publish({ version: "quota-v1", entries: [] })).toEqual({
       accepted: true,
     });
     expect(await call("snapshot", {})).toMatchObject({

@@ -10,7 +10,6 @@ import { Plugin } from "@opencode/plugin";
 import { quotaAgentTools } from "./agent-tools.js";
 import { snapshotFilePath } from "./core/persist.js";
 import {
-  customProviderKey,
   customRowPrefix,
   loadProviderSource,
   loadServerSettings,
@@ -172,7 +171,17 @@ export function createQuotaServerPlugin(
 
       // The v6 quota store: last known rows, saved in the state dir, refreshed in the background.
       // Building it reads nothing; the first snapshot or refresh call loads the file.
-      const publishedQuota = createPublishedQuota();
+      const publishedQuota = createPublishedQuota(Date.now, () => store.publicationChanged());
+      const reconcilePublications = () => {
+        const { off, custom } = liveSettings.current().settings.providers;
+        publishedQuota.reconcile(
+          off.includes("custom")
+            ? []
+            : custom.flatMap((entry) =>
+                entry.mode === "published" && entry.enabled !== false ? [entry.providerId] : [],
+              ),
+        );
+      };
       const sourceHost: ProviderSourceHost = {
         client,
         publishedQuota,
@@ -186,6 +195,7 @@ export function createQuotaServerPlugin(
         sessionModel: (sessionID) => sessionModel(sessionID),
         file: snapshotFilePath(),
       });
+      reconcilePublications();
       // The TUI reads the session model from its local store, which has nothing for an
       // unknown session. The RPC handlers match that: a failed lookup means no model.
       // With a session, a snapshot also names the providers serving its current model.
@@ -262,22 +272,13 @@ export function createQuotaServerPlugin(
       // Awaited so the plugin is active only once the RPC is registered: OpenCode waits for
       // activation before it routes an RPC call, so the first TUI call cannot miss it.
       const registration = await ctx.rpc.register(QuotaRpc, {
-        publishQuota: async ({ providerId, snapshot }) => {
-          const { off, custom } = liveSettings.current().settings.providers;
-          if (off.includes("custom")) return { accepted: false };
-          const providerKeys = custom
-            .filter(
-              (entry) =>
-                entry.mode === "published" &&
-                entry.enabled !== false &&
-                entry.providerId === providerId,
-            )
-            .map((entry) => customProviderKey(entry.id));
-          if (!providerKeys.length) return { accepted: false };
-          if (snapshot === undefined) return { accepted: true };
-          if (!publishedQuota.publish(providerId, snapshot)) return { accepted: false };
-          await store.refresh({ reason: "manual", providerKeys });
-          return { accepted: true };
+        publishQuota: async ({ providerId, ticket, snapshot }) => {
+          reconcilePublications();
+          if (snapshot !== undefined) {
+            return { accepted: publishedQuota.publish(providerId, ticket, snapshot) };
+          }
+          const issued = publishedQuota.probe(providerId);
+          return issued ? { accepted: true, ticket: issued } : { accepted: false };
         },
         snapshot: (input) =>
           logRpcFailure("snapshot", async () => {
@@ -360,6 +361,7 @@ export function createQuotaServerPlugin(
       // from them at once, then the new rows as more `changed` events. A check made with another
       // time limit, interval or price list is out of date, so every provider is checked again.
       const settingsWatch = await liveSettings.follow(async (change) => {
+        reconcilePublications();
         store.settingsChanged({ recheck: change.recheck });
         if (change.oldCommands) {
           // The command list is built again from the settings now in use. An open TUI keeps its
@@ -560,6 +562,7 @@ export function createQuotaServerPlugin(
         credentialEvents.abort();
         settingsWatch.close();
         unsubscribeStore();
+        publishedQuota.clear();
         publisher.dispose();
         await store.dispose();
         unbindCredentialSource();

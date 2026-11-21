@@ -27,6 +27,7 @@ import {
 } from "../lib/resolved-auth-identity.js";
 import { createRuntimeProviderIdResolver } from "../lib/runtime-provider-ids.js";
 import type { AccountResult } from "../providers/contract.js";
+import { customAccount } from "../providers/quota-providers.js";
 import { getProviders } from "../providers/registry.js";
 import type { LoadedSettings, Settings } from "../settings/index.js";
 import { offProviderId } from "../settings/schema.js";
@@ -61,7 +62,7 @@ export function customRowPrefix(definitionId: string): string {
   return `${QUOTA_PROVIDERS_AGGREGATE_ID}.custom.${definitionId}.`;
 }
 
-export function customProviderKey(definitionId: string): string {
+function customProviderKey(definitionId: string): string {
   return `${QUOTA_PROVIDERS_AGGREGATE_ID}:${definitionId}`;
 }
 
@@ -234,6 +235,7 @@ function storeProvider(
       customDefinitions: ctx.config.quotaProviders ?? [],
       accounts,
     });
+  const published = definition?.mode === "published" ? definition : undefined;
   return {
     id: provider.id,
     ...(definition ? { key: customProviderKey(definition.id) } : {}),
@@ -241,6 +243,25 @@ function storeProvider(
     // Cursor counts OpenCode's own history: cheap, and stale at once.
     ...(isLiveLocalUsageProviderId(provider.id) ? { minIntervalMs: 0 } : {}),
     ...(definition?.minIntervalMs === undefined ? {} : { minIntervalMs: definition.minIntervalMs }),
+    ...(published
+      ? {
+          readPublication() {
+            const snapshot = ctx.publishedQuota?.read(published.providerId);
+            if (!snapshot) return undefined;
+            const accounts = [customAccount(published, snapshot.rows, [])];
+            const result = rowsFromProviderResult(provider.id, {
+              accounts,
+              attempted: true,
+              debug: [],
+            });
+            return {
+              ...result,
+              checkedAtMs: snapshot.receivedAt,
+              buildExportPart: (check: CheckForExport) => buildExportPart(check, accounts),
+            };
+          },
+        }
+      : {}),
     ...(definition
       ? {
           restoreExportPart(snapshot) {
@@ -258,10 +279,6 @@ function storeProvider(
         }
       : {}),
     async identity(): Promise<ProviderIdentity> {
-      if (definition?.mode === "published") {
-        const generation = ctx.publishedQuota?.generation(definition.providerId);
-        return { key: JSON.stringify([settingsKey, generation]), persist: false };
-      }
       const account = await accountIdentity(provider, ctx, await cacheContext());
       if (account === null) {
         const scope =

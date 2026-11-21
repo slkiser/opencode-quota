@@ -124,6 +124,7 @@ export type StoreProvider = {
   minIntervalMs?: number;
   identity: () => Promise<ProviderIdentity>;
   fetch: () => Promise<ProviderFetch>;
+  readPublication?: () => (ProviderFetch & { checkedAtMs: number }) | undefined;
   /** Rebuilds export metadata from a saved check without fetching or recording a new check. */
   restoreExportPart?: (snapshot: ProviderSnapshot) => QuotaExportProvider;
 };
@@ -151,7 +152,6 @@ type RefreshOptions = {
   sessionID?: string;
   reason: RefreshReason;
   providerIds?: readonly string[];
-  providerKeys?: readonly string[];
   /** Refreshes only the providers serving `model` (the snapshot's `currentModelProviderIds`). */
   onlyModelProviders?: boolean;
 };
@@ -173,6 +173,7 @@ export type QuotaStore = {
   /** Refreshes the due providers (all, or `providerIds`) and answers when they are done. */
   refresh(options: RefreshOptions): Promise<QuotaSnapshot>;
   subscribe(listener: (snapshot: QuotaSnapshot) => void): () => void;
+  publicationChanged(): void;
   /** A login changed: identities are resolved again and memory-only rows are dropped. */
   invalidateIdentity(): void;
   /**
@@ -647,6 +648,7 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     const keys = new Map<string, ResolvedKey>();
     await Promise.all(
       source.providers.map(async (provider) => {
+        if (provider.readPublication) return;
         keys.set(provider.key ?? provider.id, await resolveKey(provider, scope));
       }),
     );
@@ -672,7 +674,23 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     >();
     for (const provider of operation.source.providers) {
       const key = current ? operation.keys.get(provider.key ?? provider.id)?.key : undefined;
-      const entry = key === undefined ? undefined : entries.get(key);
+      const publication = current ? provider.readPublication?.() : undefined;
+      const entry = publication
+        ? {
+            rows: loginRows(publication),
+            checkedAtMs: publication.checkedAtMs,
+            okAtMs: publication.checkedAtMs,
+            debug: publication.debug,
+            notices: [],
+            error: undefined,
+            exportPart: publication.buildExportPart?.({
+              rows: publication.rows,
+              checkedAtMs: publication.checkedAtMs,
+            }),
+          }
+        : key === undefined
+          ? undefined
+          : entries.get(key);
       for (const notice of entry?.notices ?? []) {
         if (nowMs - notice.atMs <= RESET_NOTICE_KEEP_MS) resetNotices.push(notice);
       }
@@ -907,14 +925,12 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
 
   /** The providers a refresh asks: all of them, `providerIds`, or those serving `model`. */
   function providersToRefresh(operation: Operation, options: RefreshOptions): StoreProvider[] {
-    const { providers } = operation.source;
+    const providers = operation.source.providers.filter((provider) => !provider.readPublication);
     if (options.onlyModelProviders) {
       const ids = options.model ? providerIdsServing(operation, options.model) : undefined;
       return providers.filter((provider) => ids?.includes(provider.id));
     }
-    const { providerIds, providerKeys } = options;
-    if (providerKeys)
-      return providers.filter((provider) => providerKeys.includes(provider.key ?? provider.id));
+    const { providerIds } = options;
     return providerIds
       ? providers.filter((provider) => providerIds.includes(provider.id))
       : providers;
@@ -1017,6 +1033,13 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
       return () => {
         listeners.delete(listener);
       };
+    },
+
+    publicationChanged() {
+      forgetInactiveSessions();
+      for (const view of views.values()) {
+        if (view.source.providers.some((provider) => provider.readPublication)) emit(view);
+      }
     },
 
     invalidateIdentity() {

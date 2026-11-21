@@ -39,6 +39,20 @@ async function expectRejected(schema: StandardSchema, value: unknown, message: s
 const methods = QuotaRpc.methods;
 
 describe("quota RPC definition", () => {
+  it("requires the receiver's ticket on quota-v1 submissions", async () => {
+    const { input } = methods.publishQuota;
+    const providerId = "example";
+    const ticket = "12345678-1234-1234-1234-123456789abc";
+    const snapshot = { version: "quota-v1", entries: [] };
+    await expectAccepted(input, { providerId });
+    await expectAccepted(input, { providerId, ticket, snapshot });
+    await expectRejected(
+      input,
+      { providerId, snapshot },
+      "input must carry a provider id, and a ticket with any quota-v1 snapshot",
+    );
+  });
+
   it("defines the plain RPC id, the changed event and its methods", () => {
     expect(QUOTA_RPC_ID).toBe("slkiser.opencode-quota");
     expect(QuotaRpc.id).toBe(QUOTA_RPC_ID);

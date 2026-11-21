@@ -85,6 +85,50 @@ describe("quota store", () => {
     return store;
   }
 
+  it("reads the latest publication in watched sessions without resolving another identity", async () => {
+    const other = fakeProvider();
+    const identity = vi.spyOn(other.provider, "identity");
+    const pending = deferred<ProviderFetch>();
+    other.fetch.mockReturnValueOnce(pending.promise);
+    let percent: number | undefined = 25;
+    const store = makeStore([
+      other.provider,
+      {
+        ...fakeProvider("published").provider,
+        readPublication: () =>
+          percent === undefined
+            ? undefined
+            : { ...ok([row("published", percent)]), checkedAtMs: clock },
+      },
+    ]);
+    const events: QuotaSnapshot[] = [];
+    store.subscribe((snapshot) => events.push(snapshot));
+    const otherRefresh = store.refresh({
+      reason: "manual",
+      providerIds: ["copilot"],
+      sessionID: "watched",
+    });
+    await vi.waitFor(() => expect(other.fetch).toHaveBeenCalledOnce());
+    try {
+      identity.mockClear();
+      percent = 50;
+      store.publicationChanged();
+      const shown = () =>
+        events.at(-1)?.providers.find(({ providerId }) => providerId === "published")?.rows;
+      expect(shown()).toMatchObject([{ percentRemaining: 50 }]);
+      percent = undefined;
+      store.publicationChanged();
+      expect(shown()).toEqual([]);
+      expect(identity).not.toHaveBeenCalled();
+    } finally {
+      pending.resolve(ok([row("weekly", 70)]));
+      await otherRefresh;
+    }
+    expect(
+      events.at(-1)?.providers.find(({ providerId }) => providerId === "published")?.rows,
+    ).toEqual([]);
+  });
+
   /** A store that saw the weekly row at 5% before its reset; then 2 hours pass. */
   async function storePastWeeklyReset(
     copilot: ReturnType<typeof fakeProvider>,

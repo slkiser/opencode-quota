@@ -186,7 +186,7 @@ export async function checkDefinition(
 ): Promise<DefinitionResult> {
   try {
     if (definition.mode === "published") {
-      const rows = publishedQuota?.read(definition.providerId);
+      const rows = publishedQuota?.read(definition.providerId)?.rows;
       return {
         account: customAccount(definition, rows ?? [], []),
         check: checkDetail(definition, [rows ? "outcome=success" : "outcome=no_data"]),

@@ -61,6 +61,7 @@ const TUI_MAY_REACH = [
   "lib/pricing-key.js",
   "lib/provider-metadata.js",
   "lib/provider-registration.js",
+  "lib/quota-provider-id.js",
   "lib/quota-providers.js",
   "lib/quota-report-message.js",
   "lib/token-buckets.js",
