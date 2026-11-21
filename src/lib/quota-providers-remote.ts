@@ -197,14 +197,14 @@ function parseQuotaV1Row(raw: unknown): ProviderRow | null {
   return null;
 }
 
-function parseQuotaV1(body: unknown): ParsedReply {
+export function parseQuotaV1(body: unknown, allowEmpty = false): ParsedReply {
   const invalid = { success: false, error: "Invalid quota-v1 response" } as const;
   if (
     !isRecord(body) ||
     !hasOnlyKeys(body, ["version", "entries"]) ||
     body.version !== "quota-v1" ||
     !Array.isArray(body.entries) ||
-    body.entries.length < 1 ||
+    (!allowEmpty && body.entries.length === 0) ||
     body.entries.length > MAX_REMOTE_ROWS
   ) {
     return invalid;

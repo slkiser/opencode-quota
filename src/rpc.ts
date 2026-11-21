@@ -198,6 +198,21 @@ export const QuotaRpc = {
     changed: { schema: eventSchema<QuotaRpcSnapshotOutput>(checkSnapshotOutput) },
   },
   methods: {
+    publishQuota: {
+      input: schema<{ providerId: string; snapshot?: unknown }>((value) =>
+        isRecord(value) &&
+        typeof value.providerId === "string" &&
+        /^[a-z0-9][a-z0-9._-]{0,63}$/.test(value.providerId) &&
+        (value.snapshot === undefined || isRecord(value.snapshot))
+          ? null
+          : "input must carry a provider id and optionally a quota snapshot",
+      ),
+      output: schema<{ accepted: boolean }>((value) =>
+        isRecord(value) && typeof value.accepted === "boolean"
+          ? null
+          : "output must carry an acceptance flag",
+      ),
+    },
     snapshot: {
       input: inputSchema<QuotaRpcSnapshotInput>(checkSessionInput),
       output: schema<QuotaRpcSnapshotOutput>(checkSnapshotOutput),

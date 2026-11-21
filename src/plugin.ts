@@ -10,6 +10,7 @@ import { Plugin } from "@opencode/plugin";
 import { quotaAgentTools } from "./agent-tools.js";
 import { snapshotFilePath } from "./core/persist.js";
 import {
+  customProviderKey,
   customRowPrefix,
   loadProviderSource,
   loadServerSettings,
@@ -39,6 +40,7 @@ import {
 } from "./lib/opencode-auth.js";
 import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
 import { getQuotaProviderRuntimeIds } from "./lib/provider-metadata.js";
+import { createPublishedQuota } from "./lib/published-quota.js";
 import { statusReport } from "./lib/quota-dialog-commands.js";
 import {
   containsQuotaReport,
@@ -170,8 +172,10 @@ export function createQuotaServerPlugin(
 
       // The v6 quota store: last known rows, saved in the state dir, refreshed in the background.
       // Building it reads nothing; the first snapshot or refresh call loads the file.
+      const publishedQuota = createPublishedQuota();
       const sourceHost: ProviderSourceHost = {
         client,
+        publishedQuota,
         workspaceRoot: projectDir,
         locationDirectory,
         settings: liveSettings.current,
@@ -258,6 +262,23 @@ export function createQuotaServerPlugin(
       // Awaited so the plugin is active only once the RPC is registered: OpenCode waits for
       // activation before it routes an RPC call, so the first TUI call cannot miss it.
       const registration = await ctx.rpc.register(QuotaRpc, {
+        publishQuota: async ({ providerId, snapshot }) => {
+          const { off, custom } = liveSettings.current().settings.providers;
+          if (off.includes("custom")) return { accepted: false };
+          const providerKeys = custom
+            .filter(
+              (entry) =>
+                entry.mode === "published" &&
+                entry.enabled !== false &&
+                entry.providerId === providerId,
+            )
+            .map((entry) => customProviderKey(entry.id));
+          if (!providerKeys.length) return { accepted: false };
+          if (snapshot === undefined) return { accepted: true };
+          if (!publishedQuota.publish(providerId, snapshot)) return { accepted: false };
+          await store.refresh({ reason: "manual", providerKeys });
+          return { accepted: true };
+        },
         snapshot: (input) =>
           logRpcFailure("snapshot", async () => {
             const snapshot = await store.snapshot({ sessionID: input.sessionID });
@@ -354,6 +375,7 @@ export function createQuotaServerPlugin(
         const host = {
           openCodeProviderIds: async () => (await ctx.provider.list()).data.map(({ id }) => id),
           locationDirectory,
+          publishedQuota,
           settings: liveSettings,
         };
         for (const tool of quotaAgentTools(host)) editor.add(tool);
@@ -517,6 +539,7 @@ export function createQuotaServerPlugin(
           signal: credentialEvents.signal,
         })) {
           if (event.type === "credential.updated" || event.type === "credential.switched") {
+            publishedQuota.clear();
             notifyCredentialsChanged();
             store.invalidateIdentity();
           }

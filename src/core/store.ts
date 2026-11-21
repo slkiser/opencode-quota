@@ -151,6 +151,7 @@ type RefreshOptions = {
   sessionID?: string;
   reason: RefreshReason;
   providerIds?: readonly string[];
+  providerKeys?: readonly string[];
   /** Refreshes only the providers serving `model` (the snapshot's `currentModelProviderIds`). */
   onlyModelProviders?: boolean;
 };
@@ -911,7 +912,9 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
       const ids = options.model ? providerIdsServing(operation, options.model) : undefined;
       return providers.filter((provider) => ids?.includes(provider.id));
     }
-    const { providerIds } = options;
+    const { providerIds, providerKeys } = options;
+    if (providerKeys)
+      return providers.filter((provider) => providerKeys.includes(provider.key ?? provider.id));
     return providerIds
       ? providers.filter((provider) => providerIds.includes(provider.id))
       : providers;

@@ -38,6 +38,7 @@ import type { SessionModel } from "./types.js";
 export type ProviderSourceHost = {
   /** OpenCode's provider list, for availability and model checks. */
   client: QuotaProviderContext["client"];
+  publishedQuota?: QuotaProviderContext["publishedQuota"];
   /** The project folder quota is computed for. */
   workspaceRoot: string;
   /** The folder OpenCode runs the session in; see `QuotaProviderContext.locationDirectory`. */
@@ -58,6 +59,10 @@ export type ServerSettings = {
 
 export function customRowPrefix(definitionId: string): string {
   return `${QUOTA_PROVIDERS_AGGREGATE_ID}.custom.${definitionId}.`;
+}
+
+export function customProviderKey(definitionId: string): string {
+  return `${QUOTA_PROVIDERS_AGGREGATE_ID}:${definitionId}`;
 }
 
 export function registeredProviders(host: ProviderSourceHost): readonly QuotaProvider[] {
@@ -82,6 +87,7 @@ export function providerContext(
   const { anthropic, cursor, opencode } = settings.providers;
   return {
     client: host.client,
+    publishedQuota: host.publishedQuota,
     resolveRuntimeProviderIds: createRuntimeProviderIdResolver(host.client),
     workspaceRoot: host.workspaceRoot,
     locationDirectory: host.locationDirectory,
@@ -230,7 +236,7 @@ function storeProvider(
     });
   return {
     id: provider.id,
-    ...(definition ? { key: `${provider.id}:${definition.id}` } : {}),
+    ...(definition ? { key: customProviderKey(definition.id) } : {}),
     label: getQuotaProviderDisplayLabel(provider.id),
     // Cursor counts OpenCode's own history: cheap, and stale at once.
     ...(isLiveLocalUsageProviderId(provider.id) ? { minIntervalMs: 0 } : {}),
@@ -252,6 +258,10 @@ function storeProvider(
         }
       : {}),
     async identity(): Promise<ProviderIdentity> {
+      if (definition?.mode === "published") {
+        const generation = ctx.publishedQuota?.generation(definition.providerId);
+        return { key: JSON.stringify([settingsKey, generation]), persist: false };
+      }
       const account = await accountIdentity(provider, ctx, await cacheContext());
       if (account === null) {
         const scope =
@@ -333,7 +343,7 @@ async function readProviderSource(
     availableProviderIds,
   });
   const separateCustomChecks = customDefinitions.some(
-    (definition) => definition.minIntervalMs !== undefined,
+    (definition) => definition.minIntervalMs !== undefined || definition.mode === "published",
   );
   return {
     ...(scoped.length ? { scope: JSON.stringify(scoped) } : {}),

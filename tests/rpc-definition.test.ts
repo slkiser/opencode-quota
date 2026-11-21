@@ -44,6 +44,7 @@ describe("quota RPC definition", () => {
     expect(QuotaRpc.id).toBe(QUOTA_RPC_ID);
     expect(Object.keys(QuotaRpc.events)).toEqual(["changed"]);
     expect(Object.keys(methods)).toEqual([
+      "publishQuota",
       "snapshot",
       "refresh",
       "notices",
