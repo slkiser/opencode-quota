@@ -38,6 +38,7 @@ import {
   notifyCredentialsChanged,
 } from "./lib/opencode-auth.js";
 import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
+import { pluginQuotaRpc } from "./lib/plugin-quota-rpc.js";
 import { getQuotaProviderRuntimeIds } from "./lib/provider-metadata.js";
 import { statusReport } from "./lib/quota-dialog-commands.js";
 import {
@@ -170,8 +171,16 @@ export function createQuotaServerPlugin(
 
       // The v6 quota store: last known rows, saved in the state dir, refreshed in the background.
       // Building it reads nothing; the first snapshot or refresh call loads the file.
+      const pluginQuotaLifetime = new AbortController();
       const sourceHost: ProviderSourceHost = {
         client,
+        readPluginQuota: (providerId, signal) =>
+          ctx.rpc(pluginQuotaRpc(providerId)).status(
+            {},
+            {
+              signal: AbortSignal.any([signal, pluginQuotaLifetime.signal]),
+            },
+          ),
         workspaceRoot: projectDir,
         locationDirectory,
         settings: liveSettings.current,
@@ -354,6 +363,7 @@ export function createQuotaServerPlugin(
         const host = {
           openCodeProviderIds: async () => (await ctx.provider.list()).data.map(({ id }) => id),
           locationDirectory,
+          readPluginQuota: sourceHost.readPluginQuota,
           settings: liveSettings,
         };
         for (const tool of quotaAgentTools(host)) editor.add(tool);
@@ -534,6 +544,7 @@ export function createQuotaServerPlugin(
       // Running fetches still read logins and prices, so the store is drained before the
       // bindings go.
       return async () => {
+        pluginQuotaLifetime.abort();
         credentialEvents.abort();
         settingsWatch.close();
         unsubscribeStore();

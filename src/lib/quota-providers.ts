@@ -12,7 +12,7 @@ import { getCanonicalQuotaProviderId } from "./provider-metadata.js";
 import { emptyTokenBuckets } from "./token-buckets.js";
 
 export const QUOTA_PROVIDER_REMOTE_FORMATS = ["quota-v1", "openrouter-key-v1", "json-v1"] as const;
-export const QUOTA_PROVIDER_MODES = ["remote-api", "local-estimate"] as const;
+export const QUOTA_PROVIDER_MODES = ["remote-api", "local-estimate", "plugin-rpc"] as const;
 export const QUOTA_PROVIDER_WINDOW_TYPES = ["utc-day", "rolling"] as const;
 export const QUOTA_PROVIDERS_AGGREGATE_ID = "quota-providers";
 
@@ -297,7 +297,8 @@ export interface LocalEstimateQuotaProviderDefinition extends QuotaProviderDefin
 
 export type QuotaProviderDefinition =
   | RemoteApiQuotaProviderDefinition
-  | LocalEstimateQuotaProviderDefinition;
+  | LocalEstimateQuotaProviderDefinition
+  | (QuotaProviderDefinitionBase & { mode: "plugin-rpc" });
 
 interface QuotaProviderValidationIssue {
   key: string;
@@ -475,6 +476,7 @@ function cloneDefinition(definition: QuotaProviderDefinition): QuotaProviderDefi
       ? { ...definition, ...modelIds, adapter: structuredClone(definition.adapter) }
       : { ...definition, ...modelIds };
   }
+  if (definition.mode === "plugin-rpc") return { ...definition, ...modelIds };
   return {
     ...definition,
     ...modelIds,
@@ -1401,7 +1403,9 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
         ? LOCAL_FIELDS
         : mode === "remote-api"
           ? REMOTE_FIELDS
-          : QUOTA_PROVIDER_FIELDS;
+          : mode === "plugin-rpc"
+            ? BASE_FIELDS
+            : QUOTA_PROVIDER_FIELDS;
     // An unknown field is named by its position: its name is the caller's, never repeated.
     const modeName = QUOTA_PROVIDER_MODES.find((known) => known === mode) ?? "quota provider";
     Object.keys(raw).forEach((field, position) => {
@@ -1473,7 +1477,7 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
     if (typeof mode !== "string" || !(QUOTA_PROVIDER_MODES as readonly string[]).includes(mode)) {
       issues.push({
         key: `${providerKey}.mode`,
-        message: 'expected "remote-api" or "local-estimate"',
+        message: 'expected "remote-api", "local-estimate", or "plugin-rpc"',
       });
     }
 
@@ -1596,6 +1600,25 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
                 },
         });
       }
+    } else if (
+      mode === "plugin-rpc" &&
+      issueStart === issues.length &&
+      idValid &&
+      providerId &&
+      label
+    ) {
+      definitions.push({
+        index,
+        config: {
+          id,
+          providerId,
+          label,
+          mode,
+          ...(modelIds ? { modelIds } : {}),
+          ...switchField,
+          ...intervalField,
+        },
+      });
     } else if (mode === "local-estimate") {
       if (!hasOwnKey(raw, "windows")) {
         issues.push({ key: `${providerKey}.windows`, message: "field is required" });

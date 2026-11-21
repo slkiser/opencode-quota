@@ -5,6 +5,7 @@ import type {
   QuotaProviderContext,
 } from "../lib/entries.js";
 import { mapWithConcurrency } from "../lib/map-with-concurrency.js";
+import { decodePluginQuota, type PluginQuotaReader } from "../lib/plugin-quota-rpc.js";
 import { collectLocalQuotaProviderEstimate } from "../lib/quota-providers-local.js";
 import {
   fetchRemoteQuotaProvider,
@@ -181,8 +182,41 @@ export async function checkDefinition(
   definition: QuotaProviderDefinition,
   directory: string,
   requestTimeoutMs?: number,
+  readPluginQuota?: PluginQuotaReader,
 ): Promise<DefinitionResult> {
   try {
+    if (definition.mode === "plugin-rpc") {
+      const unavailable = (failure: string, outcome: string): DefinitionResult => ({
+        account: customAccount(definition, [], [fetchError(failure)]),
+        check: checkDetail(definition, [`outcome=${outcome}`]),
+        failure,
+      });
+      if (!readPluginQuota)
+        return unavailable("Plugin quota RPC needs an OpenCode server location", "rpc_unavailable");
+      const signal = AbortSignal.timeout(requestTimeoutMs ?? 10_000);
+      let snapshot: unknown;
+      try {
+        snapshot = await readPluginQuota(definition.providerId, signal);
+      } catch {
+        return unavailable(
+          signal.aborted ? "Plugin quota RPC timed out" : "Plugin quota RPC unavailable",
+          "rpc_unavailable",
+        );
+      }
+      if (signal.aborted) return unavailable("Plugin quota RPC timed out", "rpc_unavailable");
+      let rows: ProviderRow[];
+      try {
+        rows = decodePluginQuota(snapshot);
+      } catch {
+        return unavailable("Invalid plugin quota response", "bad_response");
+      }
+      return rows.length
+        ? {
+            account: customAccount(definition, rows, []),
+            check: checkDetail(definition, ["outcome=success"]),
+          }
+        : unavailable("Plugin returned no quota data", "no_data");
+    }
     return definition.mode === "remote-api"
       ? await executeRemote(definition, directory, requestTimeoutMs)
       : await executeLocal(definition);
@@ -195,6 +229,7 @@ async function resolveQuotaProviderDefinitionAuthIdentity(
   definition: QuotaProviderDefinition,
   directory: string,
 ): Promise<ResolvedAuthIdentity | null> {
+  if (definition.mode === "plugin-rpc") return null;
   if (definition.mode === "local-estimate") {
     return deriveResolvedAuthIdentity({
       providerId: `quota-providers:${definition.id}`,
@@ -202,10 +237,7 @@ async function resolveQuotaProviderDefinitionAuthIdentity(
     });
   }
 
-  const resolved = await resolveQuotaProviderApiKey(
-    definition as RemoteApiQuotaProviderDefinition,
-    directory,
-  );
+  const resolved = await resolveQuotaProviderApiKey(definition, directory);
   return deriveResolvedAuthIdentity({
     providerId: `quota-providers:${definition.id}`,
     principal: resolved.key
@@ -283,7 +315,12 @@ export const quotaProvidersProvider: QuotaProvider = {
     }
 
     const results = await mapWithConcurrency(selected, DEFINITION_CONCURRENCY, (definition) =>
-      checkDefinition(definition, ctx.locationDirectory, ctx.config.requestTimeoutMs),
+      checkDefinition(
+        definition,
+        ctx.locationDirectory,
+        ctx.config.requestTimeoutMs,
+        ctx.readPluginQuota,
+      ),
     );
 
     return {

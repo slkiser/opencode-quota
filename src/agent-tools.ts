@@ -41,6 +41,7 @@ type QuotaAgentToolsHost = {
   openCodeProviderIds(): Promise<readonly string[]>;
   /** The folder OpenCode runs the session in; OpenCode's config files that count start here. */
   locationDirectory: string;
+  readPluginQuota?: import("./lib/plugin-quota-rpc.js").PluginQuotaReader;
   /** The settings the server holds; an edit through them is in use when it resolves. */
   settings: Pick<LiveSettings, "current" | "edit" | "editFile">;
 };
@@ -369,11 +370,12 @@ async function testFetch(
   directory: string,
   requestTimeoutMs: number,
   redact: Redact,
+  readPluginQuota?: QuotaAgentToolsHost["readPluginQuota"],
 ): Promise<ToolResult> {
   if (definition.enabled === false) {
     return { ok: false, error: `Not tested: it is switched off. ${switchOnStep()}; then test it.` };
   }
-  const checked = await checkDefinition(definition, directory, requestTimeoutMs);
+  const checked = await checkDefinition(definition, directory, requestTimeoutMs, readPluginQuota);
   if (checked.missingKey) {
     return {
       ok: false,
@@ -494,6 +496,7 @@ async function testProvider(
     host.locationDirectory,
     loaded.settings.providers.checking.requestTimeoutMs,
     redact,
+    host.readPluginQuota,
   );
   const notes = await visibilityNotes(definition, loaded.settings, host);
   return { id: definition.id, ...test, ...(notes.length > 0 ? { notes } : {}) };

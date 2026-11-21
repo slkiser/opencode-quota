@@ -38,6 +38,7 @@ import type { SessionModel } from "./types.js";
 export type ProviderSourceHost = {
   /** OpenCode's provider list, for availability and model checks. */
   client: QuotaProviderContext["client"];
+  readPluginQuota?: QuotaProviderContext["readPluginQuota"];
   /** The project folder quota is computed for. */
   workspaceRoot: string;
   /** The folder OpenCode runs the session in; see `QuotaProviderContext.locationDirectory`. */
@@ -82,6 +83,7 @@ export function providerContext(
   const { anthropic, cursor, opencode } = settings.providers;
   return {
     client: host.client,
+    readPluginQuota: host.readPluginQuota,
     resolveRuntimeProviderIds: createRuntimeProviderIdResolver(host.client),
     workspaceRoot: host.workspaceRoot,
     locationDirectory: host.locationDirectory,
@@ -333,7 +335,7 @@ async function readProviderSource(
     availableProviderIds,
   });
   const separateCustomChecks = customDefinitions.some(
-    (definition) => definition.minIntervalMs !== undefined,
+    (definition) => definition.minIntervalMs !== undefined || definition.mode === "plugin-rpc",
   );
   return {
     ...(scoped.length ? { scope: JSON.stringify(scoped) } : {}),
