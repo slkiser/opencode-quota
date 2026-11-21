@@ -56,6 +56,7 @@ export type DefinitionResult = {
   check: DebugDetail;
   failure?: string;
   missingKey?: true;
+  empty?: true;
 };
 
 /**
@@ -181,8 +182,17 @@ export async function checkDefinition(
   definition: QuotaProviderDefinition,
   directory: string,
   requestTimeoutMs?: number,
+  publishedQuota?: QuotaProviderContext["publishedQuota"],
 ): Promise<DefinitionResult> {
   try {
+    if (definition.mode === "published") {
+      const rows = publishedQuota?.read(definition.providerId)?.rows;
+      return {
+        account: customAccount(definition, rows ?? [], []),
+        check: checkDetail(definition, [rows ? "outcome=success" : "outcome=no_data"]),
+        ...(rows ? {} : { empty: true }),
+      };
+    }
     return definition.mode === "remote-api"
       ? await executeRemote(definition, directory, requestTimeoutMs)
       : await executeLocal(definition);
@@ -195,6 +205,7 @@ async function resolveQuotaProviderDefinitionAuthIdentity(
   definition: QuotaProviderDefinition,
   directory: string,
 ): Promise<ResolvedAuthIdentity | null> {
+  if (definition.mode === "published") return null;
   if (definition.mode === "local-estimate") {
     return deriveResolvedAuthIdentity({
       providerId: `quota-providers:${definition.id}`,
@@ -202,10 +213,7 @@ async function resolveQuotaProviderDefinitionAuthIdentity(
     });
   }
 
-  const resolved = await resolveQuotaProviderApiKey(
-    definition as RemoteApiQuotaProviderDefinition,
-    directory,
-  );
+  const resolved = await resolveQuotaProviderApiKey(definition, directory);
   return deriveResolvedAuthIdentity({
     providerId: `quota-providers:${definition.id}`,
     principal: resolved.key
@@ -283,13 +291,19 @@ export const quotaProvidersProvider: QuotaProvider = {
     }
 
     const results = await mapWithConcurrency(selected, DEFINITION_CONCURRENCY, (definition) =>
-      checkDefinition(definition, ctx.locationDirectory, ctx.config.requestTimeoutMs),
+      checkDefinition(
+        definition,
+        ctx.locationDirectory,
+        ctx.config.requestTimeoutMs,
+        ctx.publishedQuota,
+      ),
     );
 
     return {
       attempted: true,
       accounts: results.map((result) => result.account),
       debug: results.map((result) => result.check),
+      ...(results.every((result) => result.empty) ? { empty: true } : {}),
     };
   },
 };

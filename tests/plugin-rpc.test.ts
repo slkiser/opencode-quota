@@ -145,13 +145,14 @@ describe("server quota RPC", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true, maxRetries: 3 });
   });
 
-  it("registers the quota RPC with its ten methods during setup", async () => {
+  it("registers the quota RPC methods during setup", async () => {
     const { QuotaRpc } = await import("../src/rpc.js");
     const { definition, handlers } = await setupServer();
 
     expect(definition).toBe(QuotaRpc);
     expect(definition.id).toBe("slkiser.opencode-quota");
     expect(Object.keys(definition.methods)).toEqual([
+      "publishQuota",
       "snapshot",
       "refresh",
       "notices",
@@ -164,6 +165,45 @@ describe("server quota RPC", () => {
       "settingsSchema",
     ]);
     expect(Object.keys(handlers)).toEqual(Object.keys(definition.methods));
+  });
+
+  it("accepts only opted-in quota publications and withdraws their rows", async () => {
+    const { quotaProvidersProvider } = await import("../src/providers/quota-providers.js");
+    mocks.getProviders.mockReturnValue([quotaProvidersProvider]);
+    useSettings({
+      providers: {
+        off: [],
+        custom: [
+          { id: "published-test", providerId: "fixture", mode: "published" },
+          { id: "disabled-test", providerId: "disabled", mode: "published", enabled: false },
+        ],
+      },
+    });
+    const { call, emit } = await setupServer({ openCodeProviders: ["fixture", "disabled"] });
+    const probe = (providerId: string) => call("publishQuota", { providerId });
+    const publish = async (snapshot: unknown) => {
+      const { ticket } = (await probe("fixture")) as { ticket: string };
+      return call("publishQuota", { providerId: "fixture", ticket, snapshot });
+    };
+    expect(await probe("unconfigured")).toEqual({ accepted: false });
+    expect(await probe("disabled")).toEqual({ accepted: false });
+    expect(await probe("fixture")).toEqual({ accepted: true, ticket: expect.any(String) });
+    await call("snapshot", {});
+    const entries = [
+      { name: "balance", kind: "value", resultType: "balance", value: "24 credits" },
+    ];
+    expect(await publish({ version: "quota-v1", entries })).toEqual({ accepted: true });
+    const published = {
+      snapshot: { providers: [{ providerId: "quota-providers", rows: [{ text: "24 credits" }] }] },
+    };
+    expect(emit.mock.lastCall).toMatchObject(["changed", published]);
+    expect(await call("snapshot", {})).toMatchObject(published);
+    expect(await publish({ version: "quota-v1", entries: [] })).toEqual({
+      accepted: true,
+    });
+    expect(await call("snapshot", {})).toMatchObject({
+      snapshot: { providers: [{ providerId: "quota-providers", rows: [] }] },
+    });
   });
 
   it("asks no provider and reads no snapshot file during setup", async () => {

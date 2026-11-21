@@ -17,11 +17,38 @@ import type { QuotaSnapshot } from "./core/types.js";
 import type { UsageQuery, UsageRange, UsageReport } from "./core/usage.js";
 import { parseCalendarDate } from "./lib/calendar-date.js";
 import { isRecord } from "./lib/json-guards.js";
+import { isValidProviderId } from "./lib/quota-provider-id.js";
+import type { CustomResultType } from "./lib/quota-providers.js";
 import type { ClientSettings, CustomSwitch, SettingRule, SettingsIssue } from "./settings/index.js";
 
 export const QUOTA_RPC_ID = "slkiser.opencode-quota";
 
 export type QuotaRpcSnapshotInput = { sessionID?: string };
+type PublishedRowFields = {
+  name: string;
+  label?: string;
+  right?: string;
+  resetTimeIso?: string;
+  observedAtIso?: string;
+};
+export type QuotaV1Snapshot = {
+  version: "quota-v1";
+  entries: Array<
+    PublishedRowFields &
+      (
+        | {
+            kind: "percent";
+            resultType: "quota" | "rate_limit" | "budget";
+            percentRemaining: number;
+          }
+        | { kind: "value"; resultType: CustomResultType; value: string }
+      )
+  >;
+};
+export type QuotaPublicationInput =
+  | { providerId: string; ticket?: never; snapshot?: never }
+  | { providerId: string; ticket: string; snapshot: QuotaV1Snapshot };
+export type QuotaPublicationOutput = { accepted: boolean; ticket?: string };
 export type QuotaRpcRefreshReason = "poll" | "turn" | "manual";
 export type QuotaRpcRefreshInput = {
   reason: QuotaRpcRefreshReason;
@@ -198,6 +225,28 @@ export const QuotaRpc = {
     changed: { schema: eventSchema<QuotaRpcSnapshotOutput>(checkSnapshotOutput) },
   },
   methods: {
+    publishQuota: {
+      input: schema<QuotaPublicationInput>((value) =>
+        isRecord(value) &&
+        isValidProviderId(value.providerId) &&
+        (value.snapshot === undefined
+          ? value.ticket === undefined
+          : isRecord(value.snapshot) &&
+            value.snapshot.version === "quota-v1" &&
+            Array.isArray(value.snapshot.entries) &&
+            typeof value.ticket === "string" &&
+            value.ticket.length === 36)
+          ? null
+          : "input must carry a provider id, and a ticket with any quota-v1 snapshot",
+      ),
+      output: schema<QuotaPublicationOutput>((value) =>
+        isRecord(value) &&
+        typeof value.accepted === "boolean" &&
+        (value.ticket === undefined || (value.accepted && typeof value.ticket === "string"))
+          ? null
+          : "output must carry an acceptance flag",
+      ),
+    },
     snapshot: {
       input: inputSchema<QuotaRpcSnapshotInput>(checkSessionInput),
       output: schema<QuotaRpcSnapshotOutput>(checkSnapshotOutput),

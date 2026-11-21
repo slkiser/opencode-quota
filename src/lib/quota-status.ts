@@ -380,7 +380,7 @@ function customProviderText(definition: QuotaProviderDefinition, number: number)
   if (definition.enabled === false) {
     return `custom ${number} off (switch on in /quota_settings → Providers)`;
   }
-  const mode = definition.mode === "remote-api" ? "remote-api" : "local-estimate";
+  const mode = definition.mode;
   const models = definition.modelIds
     ? countText(definition.modelIds.length, "model", "models")
     : "all models";

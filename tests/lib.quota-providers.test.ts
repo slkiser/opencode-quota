@@ -74,7 +74,7 @@ describe("quotaProviders schema", () => {
   });
 
   it("accepts and normalizes the exact ordered remote schema", () => {
-    expect(QUOTA_PROVIDER_MODES).toEqual(["remote-api", "local-estimate"]);
+    expect(QUOTA_PROVIDER_MODES).toEqual(["remote-api", "local-estimate", "published"]);
     expect(QUOTA_PROVIDER_REMOTE_FORMATS).toEqual(["quota-v1", "openrouter-key-v1", "json-v1"]);
 
     const result = validateQuotaProviders(VALID_QUOTA_PROVIDER_INPUTS);

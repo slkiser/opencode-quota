@@ -39,6 +39,7 @@ import {
 } from "./lib/opencode-auth.js";
 import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
 import { getQuotaProviderRuntimeIds } from "./lib/provider-metadata.js";
+import { createPublishedQuota } from "./lib/published-quota.js";
 import { statusReport } from "./lib/quota-dialog-commands.js";
 import {
   containsQuotaReport,
@@ -170,8 +171,20 @@ export function createQuotaServerPlugin(
 
       // The v6 quota store: last known rows, saved in the state dir, refreshed in the background.
       // Building it reads nothing; the first snapshot or refresh call loads the file.
+      const publishedQuota = createPublishedQuota(Date.now, () => store.publicationChanged());
+      const reconcilePublications = () => {
+        const { off, custom } = liveSettings.current().settings.providers;
+        publishedQuota.reconcile(
+          off.includes("custom")
+            ? []
+            : custom.flatMap((entry) =>
+                entry.mode === "published" && entry.enabled !== false ? [entry.providerId] : [],
+              ),
+        );
+      };
       const sourceHost: ProviderSourceHost = {
         client,
+        publishedQuota,
         workspaceRoot: projectDir,
         locationDirectory,
         settings: liveSettings.current,
@@ -182,6 +195,7 @@ export function createQuotaServerPlugin(
         sessionModel: (sessionID) => sessionModel(sessionID),
         file: snapshotFilePath(),
       });
+      reconcilePublications();
       // The TUI reads the session model from its local store, which has nothing for an
       // unknown session. The RPC handlers match that: a failed lookup means no model.
       // With a session, a snapshot also names the providers serving its current model.
@@ -258,6 +272,14 @@ export function createQuotaServerPlugin(
       // Awaited so the plugin is active only once the RPC is registered: OpenCode waits for
       // activation before it routes an RPC call, so the first TUI call cannot miss it.
       const registration = await ctx.rpc.register(QuotaRpc, {
+        publishQuota: async ({ providerId, ticket, snapshot }) => {
+          reconcilePublications();
+          if (snapshot !== undefined) {
+            return { accepted: publishedQuota.publish(providerId, ticket, snapshot) };
+          }
+          const issued = publishedQuota.probe(providerId);
+          return issued ? { accepted: true, ticket: issued } : { accepted: false };
+        },
         snapshot: (input) =>
           logRpcFailure("snapshot", async () => {
             const snapshot = await store.snapshot({ sessionID: input.sessionID });
@@ -339,6 +361,7 @@ export function createQuotaServerPlugin(
       // from them at once, then the new rows as more `changed` events. A check made with another
       // time limit, interval or price list is out of date, so every provider is checked again.
       const settingsWatch = await liveSettings.follow(async (change) => {
+        reconcilePublications();
         store.settingsChanged({ recheck: change.recheck });
         if (change.oldCommands) {
           // The command list is built again from the settings now in use. An open TUI keeps its
@@ -354,6 +377,7 @@ export function createQuotaServerPlugin(
         const host = {
           openCodeProviderIds: async () => (await ctx.provider.list()).data.map(({ id }) => id),
           locationDirectory,
+          publishedQuota,
           settings: liveSettings,
         };
         for (const tool of quotaAgentTools(host)) editor.add(tool);
@@ -517,6 +541,7 @@ export function createQuotaServerPlugin(
           signal: credentialEvents.signal,
         })) {
           if (event.type === "credential.updated" || event.type === "credential.switched") {
+            publishedQuota.clear();
             notifyCredentialsChanged();
             store.invalidateIdentity();
           }
@@ -537,6 +562,7 @@ export function createQuotaServerPlugin(
         credentialEvents.abort();
         settingsWatch.close();
         unsubscribeStore();
+        publishedQuota.clear();
         publisher.dispose();
         await store.dispose();
         unbindCredentialSource();

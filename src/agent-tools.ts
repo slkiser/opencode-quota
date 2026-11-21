@@ -17,6 +17,7 @@ import { resolveEnvTemplate } from "./lib/env-template.js";
 import { isRecord } from "./lib/json-guards.js";
 import { readCredentialRows } from "./lib/opencode-auth.js";
 import { readOpenCodeConfigs } from "./lib/opencode-config-files.js";
+import type { PublishedQuota } from "./lib/published-quota.js";
 import {
   describeQuotaProviderRequest,
   QUOTA_PROVIDER_FIELDS,
@@ -41,6 +42,7 @@ type QuotaAgentToolsHost = {
   openCodeProviderIds(): Promise<readonly string[]>;
   /** The folder OpenCode runs the session in; OpenCode's config files that count start here. */
   locationDirectory: string;
+  publishedQuota?: PublishedQuota;
   /** The settings the server holds; an edit through them is in use when it resolves. */
   settings: Pick<LiveSettings, "current" | "edit" | "editFile">;
 };
@@ -369,11 +371,12 @@ async function testFetch(
   directory: string,
   requestTimeoutMs: number,
   redact: Redact,
+  publishedQuota?: PublishedQuota,
 ): Promise<ToolResult> {
   if (definition.enabled === false) {
     return { ok: false, error: `Not tested: it is switched off. ${switchOnStep()}; then test it.` };
   }
-  const checked = await checkDefinition(definition, directory, requestTimeoutMs);
+  const checked = await checkDefinition(definition, directory, requestTimeoutMs, publishedQuota);
   if (checked.missingKey) {
     return {
       ok: false,
@@ -494,6 +497,7 @@ async function testProvider(
     host.locationDirectory,
     loaded.settings.providers.checking.requestTimeoutMs,
     redact,
+    host.publishedQuota,
   );
   const notes = await visibilityNotes(definition, loaded.settings, host);
   return { id: definition.id, ...test, ...(notes.length > 0 ? { notes } : {}) };

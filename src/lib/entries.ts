@@ -4,6 +4,7 @@
  */
 import type { ProviderFetchResult } from "../providers/contract.js";
 import type { CursorQuotaPlan } from "./cursor-pricing.js";
+import type { PublishedQuota } from "./published-quota.js";
 import type { QuotaProviderDefinition } from "./quota-providers.js";
 import type { ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import type { RuntimeProviderIdResolver } from "./runtime-provider-ids.js";
@@ -27,6 +28,7 @@ export interface QuotaProviderContext {
     };
   };
   resolveRuntimeProviderIds: RuntimeProviderIdResolver;
+  publishedQuota?: PublishedQuota;
   /**
    * The project folder quota is computed for: the git root of the OpenCode location, or the
    * location itself. The terminal command computes quota for the home folder.

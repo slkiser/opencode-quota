@@ -9,10 +9,11 @@ import { isRecord } from "./json-guards.js";
 import { lookupCost } from "./modelsdev-pricing.js";
 import { priceMessage } from "./pricing-key.js";
 import { getCanonicalQuotaProviderId } from "./provider-metadata.js";
+import { isValidProviderId } from "./quota-provider-id.js";
 import { emptyTokenBuckets } from "./token-buckets.js";
 
 export const QUOTA_PROVIDER_REMOTE_FORMATS = ["quota-v1", "openrouter-key-v1", "json-v1"] as const;
-export const QUOTA_PROVIDER_MODES = ["remote-api", "local-estimate"] as const;
+export const QUOTA_PROVIDER_MODES = ["remote-api", "local-estimate", "published"] as const;
 export const QUOTA_PROVIDER_WINDOW_TYPES = ["utc-day", "rolling"] as const;
 export const QUOTA_PROVIDERS_AGGREGATE_ID = "quota-providers";
 
@@ -297,7 +298,8 @@ export interface LocalEstimateQuotaProviderDefinition extends QuotaProviderDefin
 
 export type QuotaProviderDefinition =
   | RemoteApiQuotaProviderDefinition
-  | LocalEstimateQuotaProviderDefinition;
+  | LocalEstimateQuotaProviderDefinition
+  | (QuotaProviderDefinitionBase & { mode: "published" });
 
 interface QuotaProviderValidationIssue {
   key: string;
@@ -332,14 +334,12 @@ const WINDOW_FIELDS = [
   "usdBudget",
 ] as const;
 const ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 const ASCII_OR_UNICODE_CONTROL_PATTERN = /\p{Cc}/u;
 const JSON_V1_STATIC_DISPLAY_FORBIDDEN_PATTERN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const URL_WHITESPACE_OR_CONTROL_PATTERN = /[\s\p{Cc}]/u;
 const MODEL_FORBIDDEN_PATTERN = /[\s\p{Cc}#?]/u;
 const MAX_ID_LENGTH = 64;
-const MAX_PROVIDER_ID_LENGTH = 64;
 const MAX_ENV_NAME_LENGTH = 128;
 const MAX_WINDOWS = 16;
 const MAX_ROLLING_MINUTES = 366 * 24 * 60;
@@ -387,15 +387,6 @@ function isValidId(value: unknown): value is string {
     value.length >= 1 &&
     value.length <= MAX_ID_LENGTH &&
     ID_PATTERN.test(value)
-  );
-}
-
-function isValidProviderId(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length >= 1 &&
-    value.length <= MAX_PROVIDER_ID_LENGTH &&
-    PROVIDER_ID_PATTERN.test(value)
   );
 }
 
@@ -475,6 +466,7 @@ function cloneDefinition(definition: QuotaProviderDefinition): QuotaProviderDefi
       ? { ...definition, ...modelIds, adapter: structuredClone(definition.adapter) }
       : { ...definition, ...modelIds };
   }
+  if (definition.mode === "published") return { ...definition, ...modelIds };
   return {
     ...definition,
     ...modelIds,
@@ -1401,7 +1393,9 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
         ? LOCAL_FIELDS
         : mode === "remote-api"
           ? REMOTE_FIELDS
-          : QUOTA_PROVIDER_FIELDS;
+          : mode === "published"
+            ? BASE_FIELDS
+            : QUOTA_PROVIDER_FIELDS;
     // An unknown field is named by its position: its name is the caller's, never repeated.
     const modeName = QUOTA_PROVIDER_MODES.find((known) => known === mode) ?? "quota provider";
     Object.keys(raw).forEach((field, position) => {
@@ -1473,7 +1467,7 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
     if (typeof mode !== "string" || !(QUOTA_PROVIDER_MODES as readonly string[]).includes(mode)) {
       issues.push({
         key: `${providerKey}.mode`,
-        message: 'expected "remote-api" or "local-estimate"',
+        message: `expected one of ${QUOTA_PROVIDER_MODES.map((mode) => `"${mode}"`).join(", ")}`,
       });
     }
 
@@ -1594,6 +1588,21 @@ export function validateQuotaProviders(value: unknown): QuotaProvidersValidation
                   ...common,
                   format: format as "quota-v1" | "openrouter-key-v1",
                 },
+        });
+      }
+    } else if (mode === "published") {
+      if (issueStart === issues.length && idValid && providerId && label) {
+        definitions.push({
+          index,
+          config: {
+            id,
+            providerId,
+            label,
+            mode,
+            ...(modelIds ? { modelIds } : {}),
+            ...switchField,
+            ...intervalField,
+          },
         });
       }
     } else if (mode === "local-estimate") {

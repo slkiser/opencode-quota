@@ -27,6 +27,7 @@ import {
 } from "../lib/resolved-auth-identity.js";
 import { createRuntimeProviderIdResolver } from "../lib/runtime-provider-ids.js";
 import type { AccountResult } from "../providers/contract.js";
+import { customAccount } from "../providers/quota-providers.js";
 import { getProviders } from "../providers/registry.js";
 import type { LoadedSettings, Settings } from "../settings/index.js";
 import { offProviderId } from "../settings/schema.js";
@@ -38,6 +39,7 @@ import type { SessionModel } from "./types.js";
 export type ProviderSourceHost = {
   /** OpenCode's provider list, for availability and model checks. */
   client: QuotaProviderContext["client"];
+  publishedQuota?: QuotaProviderContext["publishedQuota"];
   /** The project folder quota is computed for. */
   workspaceRoot: string;
   /** The folder OpenCode runs the session in; see `QuotaProviderContext.locationDirectory`. */
@@ -58,6 +60,10 @@ export type ServerSettings = {
 
 export function customRowPrefix(definitionId: string): string {
   return `${QUOTA_PROVIDERS_AGGREGATE_ID}.custom.${definitionId}.`;
+}
+
+function customProviderKey(definitionId: string): string {
+  return `${QUOTA_PROVIDERS_AGGREGATE_ID}:${definitionId}`;
 }
 
 export function registeredProviders(host: ProviderSourceHost): readonly QuotaProvider[] {
@@ -82,6 +88,7 @@ export function providerContext(
   const { anthropic, cursor, opencode } = settings.providers;
   return {
     client: host.client,
+    publishedQuota: host.publishedQuota,
     resolveRuntimeProviderIds: createRuntimeProviderIdResolver(host.client),
     workspaceRoot: host.workspaceRoot,
     locationDirectory: host.locationDirectory,
@@ -228,13 +235,33 @@ function storeProvider(
       customDefinitions: ctx.config.quotaProviders ?? [],
       accounts,
     });
+  const published = definition?.mode === "published" ? definition : undefined;
   return {
     id: provider.id,
-    ...(definition ? { key: `${provider.id}:${definition.id}` } : {}),
+    ...(definition ? { key: customProviderKey(definition.id) } : {}),
     label: getQuotaProviderDisplayLabel(provider.id),
     // Cursor counts OpenCode's own history: cheap, and stale at once.
     ...(isLiveLocalUsageProviderId(provider.id) ? { minIntervalMs: 0 } : {}),
     ...(definition?.minIntervalMs === undefined ? {} : { minIntervalMs: definition.minIntervalMs }),
+    ...(published
+      ? {
+          readPublication() {
+            const snapshot = ctx.publishedQuota?.read(published.providerId);
+            if (!snapshot) return undefined;
+            const accounts = [customAccount(published, snapshot.rows, [])];
+            const result = rowsFromProviderResult(provider.id, {
+              accounts,
+              attempted: true,
+              debug: [],
+            });
+            return {
+              ...result,
+              checkedAtMs: snapshot.receivedAt,
+              buildExportPart: (check: CheckForExport) => buildExportPart(check, accounts),
+            };
+          },
+        }
+      : {}),
     ...(definition
       ? {
           restoreExportPart(snapshot) {
@@ -333,7 +360,7 @@ async function readProviderSource(
     availableProviderIds,
   });
   const separateCustomChecks = customDefinitions.some(
-    (definition) => definition.minIntervalMs !== undefined,
+    (definition) => definition.minIntervalMs !== undefined || definition.mode === "published",
   );
   return {
     ...(scoped.length ? { scope: JSON.stringify(scoped) } : {}),
