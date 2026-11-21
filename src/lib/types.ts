@@ -15,7 +15,9 @@ export type GoogleAgyAuthSourceKey =
   | "google"
   | "google-agy"
   | "opencode-agy-auth"
-  | "google-agy-auth";
+  | "google-agy-auth"
+  // The provider id used by the Antigravity bridge that drives the `agy` CLI.
+  | "agy";
 
 /**
  * Copilot subscription tier.

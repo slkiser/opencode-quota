@@ -114,7 +114,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
   {
     id: "google-agy",
     label: "Google AGY",
-    runtimeIds: ["google-agy", "opencode-agy-auth", "google-agy-auth"],
+    runtimeIds: ["google-agy", "opencode-agy-auth", "google-agy-auth", "agy"],
     synonyms: ["opencode-agy-auth", "google-agy-auth"],
     groupBrands: ["Google AGY", "AGY"],
     rowKeys: [
