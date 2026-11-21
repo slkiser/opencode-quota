@@ -15,6 +15,8 @@ export const AGY_AUTH_KEYS = [
   "google-agy",
   "opencode-agy-auth",
   "google-agy-auth",
+  // The provider id used by the Antigravity bridge that drives the `agy` CLI.
+  "agy",
 ] as const satisfies readonly GoogleAgyAuthSourceKey[];
 
 type AgyAccount = GoogleAccount<GoogleAgyAuthSourceKey>;
