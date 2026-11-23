@@ -1145,6 +1145,7 @@ const DEBUG_DETAILS = {
   zai: {},
   zhipu: {},
   deepseek: {},
+  mistral: {},
   xai: {},
   "minimax-coding-plan": { api_endpoint: oneOf("international", "china") },
   "minimax-china-coding-plan": { api_endpoint: oneOf("international", "china") },

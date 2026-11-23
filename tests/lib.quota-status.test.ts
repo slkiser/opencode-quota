@@ -2464,6 +2464,7 @@ describe("statusReport", () => {
   const KEY_PROVIDERS = [
     "commandcode",
     "deepseek",
+    "mistral",
     "ollama-cloud",
     "zai",
     "zhipu",

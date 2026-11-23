@@ -28,6 +28,7 @@ const PROVIDER_FILES: Readonly<Record<string, readonly string[]>> = {
   "google-gemini-cli.ts": ["google-gemini-cli"],
   "kimi-code.ts": ["kimi-code-plan-global", "kimi-code-plan-cn"],
   "mimo.ts": ["xiaomi"],
+  "mistral.ts": ["mistral"],
   "minimax-coding-plan.ts": ["minimax-coding-plan", "minimax-china-coding-plan"],
   "ollama-cloud.ts": ["ollama-cloud"],
   "openai.ts": ["openai"],
