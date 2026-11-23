@@ -12,7 +12,9 @@ import { writeJsonAtomic } from "./atomic-json.js";
 import { fetchWithTimeout } from "./http.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
-type PricingSettings = Settings["providers"]["pricing"];
+type PricingSettings = Omit<Settings["providers"]["pricing"], "refreshConnectedProviders"> & {
+  refreshConnectedProviders?: boolean;
+};
 
 /** Which price list reports use: "auto" (the newer of runtime and bundled), or one of them. */
 export type PricingSnapshotSource = PricingSettings["source"];
@@ -101,6 +103,9 @@ const REFRESH_RESULTS = new Set([
 
 /** The bound settings, oldest first; the last one still bound is followed. */
 const SETTINGS_BINDINGS: Array<{ current: () => PricingSettings }> = [];
+const PROVIDER_BINDINGS: Array<{
+  current: () => Promise<{ providerIds: string[]; missingModels: boolean }>;
+}> = [];
 let LOADED: LoadedList | null = null;
 let REFRESH_IN_FLIGHT: { force: boolean; result: Promise<RefreshResult> } | null = null;
 let PROCESS_REFRESH_CHECKED = false;
@@ -122,6 +127,17 @@ export function usePricingSettings(current: () => PricingSettings): () => void {
 
 function pricingSettings(): PricingSettings {
   return SETTINGS_BINDINGS.at(-1)?.current() ?? DEFAULT_SETTINGS;
+}
+
+export function usePricingProviders(
+  current: () => Promise<{ providerIds: string[]; missingModels: boolean }>,
+): () => void {
+  const binding = { current };
+  PROVIDER_BINDINGS.push(binding);
+  return () => {
+    const index = PROVIDER_BINDINGS.indexOf(binding);
+    if (index !== -1) PROVIDER_BINDINGS.splice(index, 1);
+  };
 }
 
 /** An object or an array (an array's entries are keyed by position). */
@@ -188,14 +204,15 @@ function normalizeSnapshot(raw: unknown): PricingSnapshot | null {
   );
 }
 
-function buildSnapshotFromApi(apiRaw: unknown, generatedAt: number): PricingSnapshot {
+function buildSnapshotFromApi(
+  apiRaw: unknown,
+  generatedAt: number,
+  providerIds: string[],
+): PricingSnapshot {
   const api = asRecord(apiRaw) ?? {};
   return makeSnapshot(
     { source: SOURCE_URL, generatedAt, units: UNITS },
-    DEFAULT_MODELSDEV_PROVIDERS.map((providerID) => [
-      providerID,
-      asRecord(api[providerID])?.models,
-    ]),
+    providerIds.map((providerID) => [providerID, asRecord(api[providerID])?.models]),
     (model) => pickCosts(asRecord(model)?.cost, API_COST_KEYS),
   );
 }
@@ -212,7 +229,10 @@ function keepRetiredModels(
   previous: Array<PricingSnapshot | null>,
 ): PricingSnapshot {
   const providers = { ...current.providers };
-  for (const providerID of DEFAULT_MODELSDEV_PROVIDERS) {
+  for (const providerID of new Set([
+    ...DEFAULT_MODELSDEV_PROVIDERS,
+    ...previous.flatMap((snapshot) => Object.keys(snapshot?.providers ?? {})),
+  ])) {
     const models = { ...providers[providerID] };
     for (const snapshot of previous) {
       for (const [modelID, cost] of Object.entries(snapshot?.providers[providerID] ?? {})) {
@@ -377,11 +397,23 @@ async function refresh(force: boolean): Promise<RefreshResult> {
   LOADED = list;
 
   if (selection === "bundled" && !force) return { updated: false, reason: "selection_bundled" };
-  if (!force && PROCESS_REFRESH_CHECKED) {
+  const connected = pricingSettings().refreshConnectedProviders
+    ? await PROVIDER_BINDINGS.at(-1)
+        ?.current()
+        .catch(() => undefined)
+    : undefined;
+  const providerIds = [
+    ...new Set([...DEFAULT_MODELSDEV_PROVIDERS, ...(connected?.providerIds ?? [])]),
+  ];
+  const missing =
+    connected &&
+    (connected.missingModels ||
+      connected.providerIds.some((id) => !Object.hasOwn(list.snapshot.providers, id)));
+  if (!force && PROCESS_REFRESH_CHECKED && !missing) {
     return { updated: false, reason: "already_checked_this_process" };
   }
   PROCESS_REFRESH_CHECKED = true;
-  if (!force && !listHealth(list.snapshot._meta.generatedAt, nowMs).stale) {
+  if (!force && !missing && !listHealth(list.snapshot._meta.generatedAt, nowMs).stale) {
     return { updated: false, reason: "fresh" };
   }
   const lastAttemptAt = previousState.lastAttemptAt;
@@ -397,7 +429,9 @@ async function refresh(force: boolean): Promise<RefreshResult> {
   };
   let next: PricingRefreshStateV1;
   try {
-    const fetched = await fetchModelsDev(attempting);
+    const fetched = await fetchModelsDev(
+      missing ? { ...attempting, etag: undefined, lastModified: undefined } : attempting,
+    );
     let snapshot: PricingSnapshot;
     if (fetched.kind === "not_modified") {
       // The same prices, confirmed now; also heals snapshots saved before retired models were kept.
@@ -405,7 +439,7 @@ async function refresh(force: boolean): Promise<RefreshResult> {
       const confirmed = { _meta: { ...base._meta, generatedAt: nowMs }, providers: base.providers };
       snapshot = keepRetiredModels(confirmed, [bundled]);
     } else {
-      const fresh = buildSnapshotFromApi(fetched.api, nowMs);
+      const fresh = buildSnapshotFromApi(fetched.api, nowMs, providerIds);
       if (Object.keys(fresh.providers).length === 0) {
         throw new Error("Refusing to persist empty pricing snapshot from models.dev");
       }
@@ -524,6 +558,7 @@ export function listProvidersForModelId(modelId: string): string[] {
 
 export function __resetPricingSnapshotForTests(): void {
   SETTINGS_BINDINGS.length = 0;
+  PROVIDER_BINDINGS.length = 0;
   LOADED = null;
   REFRESH_IN_FLIGHT = null;
   PROCESS_REFRESH_CHECKED = false;

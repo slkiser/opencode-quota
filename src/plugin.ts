@@ -31,13 +31,18 @@ import {
 import { findGitWorktreeRoot } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import { homeNoticeLine, listNotices } from "./lib/maintainer-home-notice.js";
-import { downloadPrices, refreshPricesIfDue } from "./lib/modelsdev-pricing.js";
+import {
+  downloadPrices,
+  refreshPricesIfDue,
+  usePricingProviders,
+} from "./lib/modelsdev-pricing.js";
 import {
   bindCredentialSource,
   createIntegrationCredentialSource,
   notifyCredentialsChanged,
 } from "./lib/opencode-auth.js";
 import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
+import { resolvePricingKey } from "./lib/pricing-key.js";
 import { getQuotaProviderRuntimeIds } from "./lib/provider-metadata.js";
 import { statusReport } from "./lib/quota-dialog-commands.js";
 import {
@@ -504,6 +509,19 @@ export function createQuotaServerPlugin(
       const unbindCredentialSource = bindCredentialSource(
         createIntegrationCredentialSource(ctx.integration),
       );
+      const unbindPricingProviders = usePricingProviders(async () => {
+        const [providers, models] = await withTimeout(
+          Promise.all([ctx.provider.list(), ctx.model.list()]),
+          PROVIDER_NAMES_TIMEOUT_MS,
+          "reading pricing providers timed out",
+        );
+        return {
+          providerIds: providers.data.map(({ id }) => id),
+          missingModels: models.data.some(
+            (model) => !resolvePricingKey({ providerID: model.providerID, modelID: model.id }).ok,
+          ),
+        };
+      });
       // A login added, changed or switched in OpenCode drops cached logins and failed-login
       // entries, so the next read asks OpenCode again, and makes the store check who each
       // provider is signed in as. If the subscription fails, cached logins stay until they
@@ -539,6 +557,7 @@ export function createQuotaServerPlugin(
         unsubscribeStore();
         publisher.dispose();
         await store.dispose();
+        unbindPricingProviders();
         unbindCredentialSource();
         liveSettings.dispose();
       };

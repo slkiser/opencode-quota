@@ -369,6 +369,11 @@ export const FIELDS: readonly Field[] = [
   field("providers.pricing.autoRefreshDays", "Download new prices", SHOW.days, {
     values: [1, 7, 30],
   }),
+  field(
+    "providers.pricing.refreshConnectedProviders",
+    "Connected Provider",
+    onOff("off", "refresh"),
+  ),
 ];
 
 /** A line that sets the lines marked with its name in one step. */

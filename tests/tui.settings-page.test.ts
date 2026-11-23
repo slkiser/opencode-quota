@@ -75,6 +75,7 @@ describe("a Settings page without the window", () => {
       ["A model hits its limit", "wait for the reset"],
       ["Prices from", "newest list"],
       ["Download new prices", "every 7 days"],
+      ["Connected Provider", "off"],
     ]);
   });
 

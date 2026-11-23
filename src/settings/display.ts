@@ -159,6 +159,7 @@ export const SETTINGS_SCHEMA = {
   "providers.checking.waitForQuotaReset": bool(true),
   "providers.pricing.source": choice(["auto", "bundled", "runtime"], "auto"),
   "providers.pricing.autoRefreshDays": { ...whole(1), default: 7 },
+  "providers.pricing.refreshConnectedProviders": bool(false),
   "system.exportFile": bool(false),
   /** "" = `$XDG_CACHE_HOME/opencode/quota-export.json`. */
   "system.exportPath": { kind: "path", allowEmpty: true, default: "", fileOnly: true },

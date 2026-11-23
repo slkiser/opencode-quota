@@ -861,6 +861,27 @@ describe("server quota RPC", () => {
     });
   });
 
+  it("downloads prices for available OpenCode providers when enabled", async () => {
+    useSettings({ providers: { pricing: { refreshConnectedProviders: true } } });
+    const models = { "mistral-large": { cost: { input: 2, output: 6 } } };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ mistral: { models } }))),
+    );
+    onTestFinished(() => rm(`${TEST_RUNTIME_ROOT}/cache`, { recursive: true, force: true }));
+    const { ctx, call } = await setupServer({ openCodeProviders: ["mistral"] });
+    const list = vi.fn(async () => ({
+      data: [{ providerID: "mistral", id: "mistral-large" }],
+    }));
+    Object.assign(ctx, { model: { list } });
+
+    await expect(call("downloadPrices", {})).resolves.toMatchObject({ ok: true });
+
+    const { lookupCost } = await import("../src/lib/modelsdev-pricing.js");
+    expect(list).toHaveBeenCalledOnce();
+    expect(lookupCost("mistral", "mistral-large")).toEqual({ input: 2, output: 6 });
+  });
+
   it("posts the /quota quick look of Web and Desktop into the chat", async () => {
     const databaseDir = await mkdtemp(join(tmpdir(), "opencode-quota-quick-look-"));
     onTestFinished(() => rm(databaseDir, { recursive: true, force: true }));

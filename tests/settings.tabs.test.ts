@@ -118,7 +118,7 @@ const EXPECTED = {
     cursor: { plan: "none", includedApiUsd: null, billingCycleStartDay: null },
     opencode: { monthlyLimitUsd: null },
     checking: { minIntervalMs: 300000, requestTimeoutMs: 5000, waitForQuotaReset: true },
-    pricing: { source: "auto", autoRefreshDays: 7 },
+    pricing: { source: "auto", autoRefreshDays: 7, refreshConnectedProviders: false },
   },
   system: {
     exportFile: false,

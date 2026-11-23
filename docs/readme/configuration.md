@@ -124,6 +124,7 @@ Every place follows these, so in the TUI they are on **Layout → All places**. 
 | `providers.checking.waitForQuotaReset` | `true` | On a model limit error, wait until 1 minute after the earliest used-up window resets, at most 5 hours. `false` keeps normal retry timing. |
 | `providers.pricing.source` | `"auto"` | `auto`, `bundled`, `runtime`. |
 | `providers.pricing.autoRefreshDays` | `7` | Whole number of days, at least 1. |
+| `providers.pricing.refreshConnectedProviders` | `false` | Refresh models.dev prices for available OpenCode providers too, and check for missing model prices. Keeps the six baseline sources and the six-hour retry interval. Built-in-only pricing does not auto-download. |
 
 ### System
 
