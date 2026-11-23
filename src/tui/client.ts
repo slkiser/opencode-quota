@@ -363,7 +363,8 @@ export function createQuotaClient(
         if (at === mount) apply(output.snapshot, directory, { id: sessionID, call, read });
       })
       .catch((error) => {
-        if (at === mount && host.client === client) onFailure(error);
+        if (at !== mount) return;
+        if (host.client === client) onFailure(error);
         reportFailure(error);
       })
       .finally(() => {
@@ -378,7 +379,9 @@ export function createQuotaClient(
       .then((output) => {
         if (at === mount) setHomeLine(output.homeLine);
       })
-      .catch(reportFailure);
+      .catch((error) => {
+        if (at === mount) reportFailure(error);
+      });
   }
 
   function snapshot(
@@ -466,7 +469,8 @@ export function createQuotaClient(
         });
         return snapshot(sessionID, options.location?.directory ?? "");
       } catch (error) {
-        if (at === mount && host.client === client) onFailure(error);
+        if (at !== mount) return undefined;
+        if (host.client === client) onFailure(error);
         reportFailure(error);
         return undefined;
       }

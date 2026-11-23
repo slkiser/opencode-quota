@@ -423,4 +423,67 @@ describe("TUI quota client", () => {
     });
     stop();
   });
+
+  it("does not warn when in-flight quota calls reject after the TUI stops", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onFailure = vi.fn();
+    let rejectSnapshot: (error: unknown) => void = () => {};
+    let rejectRefresh: (error: unknown) => void = () => {};
+    let rejectNotices: (error: unknown) => void = () => {};
+    const rpc = {
+      snapshot: vi.fn(
+        () =>
+          new Promise<{ snapshot: QuotaSnapshot }>((_resolve, reject) => {
+            rejectSnapshot = reject;
+          }),
+      ),
+      refresh: vi.fn(
+        () =>
+          new Promise<{ snapshot: QuotaSnapshot }>((_resolve, reject) => {
+            rejectRefresh = reject;
+          }),
+      ),
+      notices: vi.fn(
+        () =>
+          new Promise<{ homeLine: string }>((_resolve, reject) => {
+            rejectNotices = reject;
+          }),
+      ),
+      command: vi.fn(),
+      events: { on: vi.fn(() => () => {}) },
+    };
+    const host = {
+      location: { directory: process.cwd() },
+      data: {},
+      client: { rpc: () => rpc },
+    };
+    const client = createQuotaClient(host, undefined, onFailure);
+    const stop = client.start();
+    client.watch("ses_1");
+    client.watchHome();
+    const pendingRefresh = client.refresh("turn", "ses_1");
+
+    stop();
+
+    const resetError = new Error("Transport: ECONNRESET: The socket connection was closed");
+    rejectSnapshot(resetError);
+    rejectNotices(resetError);
+    rejectRefresh(resetError);
+    expect(await pendingRefresh).toBeUndefined();
+    await settle();
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(onFailure).not.toHaveBeenCalled();
+
+    // Failures while running still warn and notify onFailure.
+    const again = client.start();
+    const liveRefresh = client.refresh("turn", "ses_1");
+    rejectRefresh(new Error("server unavailable"));
+    expect(await liveRefresh).toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(onFailure).toHaveBeenCalledTimes(1);
+
+    again();
+    warn.mockRestore();
+  });
 });

@@ -189,8 +189,10 @@ const plugin = Plugin.define({
         const owner = getOwner() ?? undefined;
         appOwner = owner;
         const stopQuota = quota.start();
+        let disposed = false;
         // Load settings on Home too, including switches for otherwise hidden surfaces.
         queueMicrotask(() => {
+          if (disposed) return;
           try {
             quota.watch()();
           } catch (error) {
@@ -261,7 +263,6 @@ const plugin = Plugin.define({
             if (!isChildSession(sessionID)) void quota.refresh("turn", sessionID);
           },
         });
-        let disposed = false;
         const dispose = () => {
           if (disposed) return;
           disposed = true;
