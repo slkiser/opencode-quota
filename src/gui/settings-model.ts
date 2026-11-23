@@ -130,6 +130,7 @@ export const SECTIONS: readonly Section[] = [
       "providers.checking.waitForQuotaReset",
       "providers.pricing.source",
       "providers.pricing.autoRefreshDays",
+      "providers.pricing.refreshConnectedProviders",
     ],
   },
   {

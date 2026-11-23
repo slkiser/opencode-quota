@@ -14,7 +14,11 @@ const SHIPPED_MINI = SHIPPED.providers.openai["gpt-4o-mini"];
 /** A model the fake models.dev reply leaves out, as models.dev does with retired ones. */
 const SHIPPED_GPT_4O = SHIPPED.providers.openai["gpt-4o"];
 
-type Settings = { source: "auto" | "bundled" | "runtime"; autoRefreshDays: number };
+type Settings = {
+  source: "auto" | "bundled" | "runtime";
+  autoRefreshDays: number;
+  refreshConnectedProviders?: boolean;
+};
 const STALE: Settings = { source: "auto", autoRefreshDays: 3 };
 
 /** A downloaded list made at `generatedAt`: openai/gpt-4o-mini at `input`, plus `models`. */
@@ -150,6 +154,104 @@ describe("the price list lookups use", () => {
 });
 
 describe("refreshPricesIfDue", () => {
+  it("adds connected providers to a fresh cache without conditional headers and keeps baseline prices", async () => {
+    const { pricing, fetch, writeRefreshState, readDownloaded } = await start({
+      source: "auto",
+      autoRefreshDays: 7,
+      refreshConnectedProviders: true,
+    });
+    pricing.usePricingProviders(async () => ({ providerIds: ["mistral"], missingModels: true }));
+    await writeRefreshState({ version: 1, updatedAt: NOW, etag: "old" });
+    fetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          mistral: { models: { "mistral-large": { cost: { input: 2, output: 6 } } } },
+          unrelated: { models: { other: { cost: { input: 1 } } } },
+        }),
+      ),
+    );
+
+    await pricing.refreshPricesIfDue();
+
+    expect(pricing.lookupCost("mistral", "mistral-large")).toEqual({ input: 2, output: 6 });
+    expect(pricing.lookupCost("openai", "gpt-4o")).toEqual(SHIPPED_GPT_4O);
+    expect(pricing.hasProvider("unrelated")).toBe(false);
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).has("if-none-match")).toBe(false);
+    expect((await readDownloaded())._meta.providers).toContain("mistral");
+
+    await pricing.refreshPricesIfDue();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not discover connected providers when disabled", async () => {
+    const { pricing, fetch } = await start({ source: "auto", autoRefreshDays: 7 });
+    const connected = vi.fn(async () => ({ providerIds: ["mistral"], missingModels: true }));
+    pricing.usePricingProviders(connected);
+
+    await pricing.refreshPricesIfDue();
+
+    expect(connected).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps extra provider prices across later downloads", async () => {
+    const { pricing, fetch, writeDownloaded } = await start(STALE);
+    await writeDownloaded({
+      ...downloadedList(SHIPPED_AT, 1),
+      providers: { mistral: { retired: { input: 2, output: 6 } } },
+    });
+    fetch.mockResolvedValue(modelsDevReply({ input: 1 }));
+
+    await pricing.refreshPricesIfDue();
+
+    expect(pricing.lookupCost("mistral", "retired")).toEqual({ input: 2, output: 6 });
+  });
+
+  it("does not auto-download connected prices when pinned to bundled", async () => {
+    const { pricing, fetch } = await start({
+      source: "bundled",
+      autoRefreshDays: 1,
+      refreshConnectedProviders: true,
+    });
+    pricing.usePricingProviders(async () => ({ providerIds: ["mistral"], missingModels: true }));
+
+    await pricing.refreshPricesIfDue();
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("checks newly missing models after an earlier fresh check", async () => {
+    const { pricing, fetch } = await start({
+      source: "auto",
+      autoRefreshDays: 7,
+      refreshConnectedProviders: true,
+    });
+    let missingModels = false;
+    pricing.usePricingProviders(async () => ({ providerIds: ["openai"], missingModels }));
+    await pricing.refreshPricesIfDue();
+    expect(fetch).not.toHaveBeenCalled();
+    missingModels = true;
+    fetch.mockResolvedValue(modelsDevReply({ input: 1 }));
+
+    await pricing.refreshPricesIfDue();
+
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to normal refresh when provider discovery fails", async () => {
+    const { pricing, fetch } = await start({ ...STALE, refreshConnectedProviders: true });
+    pricing.usePricingProviders(async () => {
+      throw new Error("unavailable");
+    });
+    fetch.mockResolvedValue(modelsDevReply({ input: 1 }));
+
+    await pricing.refreshPricesIfDue();
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(pricing.lookupCost("openai", "gpt-4o-mini")).toEqual({ input: 1 });
+  });
+
   it.each([
     { days: 7, maxAgeDays: 7, due: false },
     { days: 1, maxAgeDays: 1, due: true },

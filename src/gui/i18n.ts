@@ -330,6 +330,9 @@ export const en = {
   "setting.providers.pricing.autoRefreshDays": "Download new prices",
   "setting.providers.pricing.autoRefreshDays.description":
     "Days between downloads of new prices from models.dev.",
+  "setting.providers.pricing.refreshConnectedProviders": "Connected Provider",
+  "setting.providers.pricing.refreshConnectedProviders.description":
+    "Download token prices for available OpenCode providers too, and check for missing model prices. Keeps the six built-in pricing sources and the download retry interval. Requires downloaded prices, not built-in only.",
   "setting.system.oldCommands": "Old command names",
   "setting.system.oldCommands.description":
     "List the 4.x and 5.x /tokens_* commands. The / list changes after a restart.",
