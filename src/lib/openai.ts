@@ -34,9 +34,11 @@ interface OpenAIUsageResponse {
 
 interface JwtPayload {
   "https://api.openai.com/auth"?: { chatgpt_account_id?: string };
+  /** Expiry, in epoch seconds. */
+  exp?: number;
 }
 
-function parseJwtPayload(token: string): JwtPayload | null {
+export function parseJwtPayload(token: string): JwtPayload | null {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   try {
@@ -227,29 +229,45 @@ export async function readOpenAILogins(): Promise<OpenAILogin[]> {
 /**
  * Who OpenAI is signed in as: each OAuth sign-in's account (or token), and each other login by
  * its connection, since its rows do not depend on a secret. A failed login can't be told apart.
+ * `codexCli` adds the Codex CLI sign-in, whose rows the token-sharing fallback depends on.
  */
 export async function openaiLoginsIdentity(
   logins: readonly OpenAILogin[],
+  codexCliAuth?: { accessToken: string; accountId?: string } | null,
 ): Promise<ResolvedAuthIdentity | null> {
-  return loginListIdentity(
-    "openai",
-    await Promise.all(
-      logins.map(async ({ row, oauth }) => {
-        if (row.resolveError !== undefined || oauth?.state === "failed") {
-          return { row, identity: null };
-        }
-        const principal = oauth
-          ? oauth.accountId
-            ? { kind: "stable-id" as const, value: oauth.accountId }
-            : { kind: "credential" as const, value: oauth.refreshToken ?? oauth.accessToken }
-          : { kind: "stable-id" as const, value: `connection:${row.id}` };
-        return {
-          row,
-          identity: await deriveResolvedAuthIdentity({ providerId: "openai", principal }),
-        };
-      }),
-    ),
+  const members: Array<{
+    row: { id: string; active: boolean };
+    identity: ResolvedAuthIdentity | null;
+  }> = await Promise.all(
+    logins.map(async ({ row, oauth }) => {
+      if (row.resolveError !== undefined || oauth?.state === "failed") {
+        return { row, identity: null };
+      }
+      const principal = oauth
+        ? oauth.accountId
+          ? { kind: "stable-id" as const, value: oauth.accountId }
+          : { kind: "credential" as const, value: oauth.refreshToken ?? oauth.accessToken }
+        : { kind: "stable-id" as const, value: `connection:${row.id}` };
+      return {
+        row,
+        identity: await deriveResolvedAuthIdentity({ providerId: "openai", principal }),
+      };
+    }),
   );
+  if (codexCliAuth) {
+    // The rows of a token-sharing login depend on this sign-in, so a `codex login` switch must
+    // invalidate them: the account id identifies it, else the token itself.
+    members.push({
+      row: { id: "codex-cli", active: false },
+      identity: await deriveResolvedAuthIdentity({
+        providerId: "openai",
+        principal: codexCliAuth.accountId
+          ? { kind: "stable-id", value: codexCliAuth.accountId }
+          : { kind: "credential", value: codexCliAuth.accessToken },
+      }),
+    });
+  }
+  return loginListIdentity("openai", members);
 }
 
 /** A login label that can go into a shell command unquoted and is not read as an option. */

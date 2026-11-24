@@ -177,6 +177,8 @@ export const SETTINGS_SCHEMA = {
   "providers.cursor.includedApiUsd": USD,
   "providers.cursor.billingCycleStartDay": { ...whole(1, 28), nullable: true, default: null },
   "providers.opencode.monthlyLimitUsd": USD,
+  /** A Sign in with ChatGPT login borrows the Codex CLI sign-in's ChatGPT quota (#316). */
+  "providers.openai.codexCliSource": bool(false),
   "providers.checking.minIntervalMs": above0(300_000),
   "providers.checking.requestTimeoutMs": above0(5_000),
   "providers.checking.waitForQuotaReset": bool(true),

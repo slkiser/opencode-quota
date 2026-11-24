@@ -353,6 +353,10 @@ export const FIELDS: readonly Field[] = [
     note: "a dollar amount to use instead",
     placeholder: "a dollar amount",
   }),
+  field("providers.openai.codexCliSource", "Codex CLI quota", SHOW.onOff, {
+    provider: "openai",
+    note: "for Sign in with ChatGPT, read the Codex CLI's sign-in (~/.codex/auth.json)",
+  }),
   field("providers.checking.minIntervalMs", "Check for new numbers", SHOW.minutes, {
     group: "Checking",
     values: [1, 2, 5, 10, 15, 30].map((count) => count * MINUTE_MS),

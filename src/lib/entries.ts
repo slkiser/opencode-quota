@@ -43,6 +43,8 @@ export interface QuotaProviderContext {
     cursorIncludedApiUsd?: number;
     cursorBillingCycleStartDay?: number;
     opencodeMonthlyLimit?: number;
+    /** A Sign in with ChatGPT login may use the Codex CLI sign-in's ChatGPT quota. */
+    openaiCodexCliSource?: boolean;
     requestTimeoutMs?: number;
     /** True when the settings file sets providers.checking.requestTimeoutMs (not its default). */
     requestTimeoutMsConfigured?: boolean;

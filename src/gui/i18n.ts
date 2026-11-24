@@ -316,6 +316,9 @@ export const en = {
   "setting.providers.opencode.monthlyLimitUsd": "OpenCode Zen monthly budget",
   "setting.providers.opencode.monthlyLimitUsd.description":
     "Dollars a month to use instead of the Console's budget. Empty uses the Console's.",
+  "setting.providers.openai.codexCliSource": "OpenAI Codex CLI quota",
+  "setting.providers.openai.codexCliSource.description":
+    "For a Sign in with ChatGPT login, show the quota of the Codex CLI's own sign-in (~/.codex/auth.json), named Codex CLI. Off keeps the unavailable message.",
   "setting.providers.checking.minIntervalMs": "Check for new numbers",
   "setting.providers.checking.minIntervalMs.description":
     "Wait at least this long between provider checks.",
