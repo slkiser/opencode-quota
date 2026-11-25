@@ -215,6 +215,16 @@ function groupDigits(integer: string): string {
   return integer.replace(/\B(?=(\d{3})+(?!\d))/gu, ",");
 }
 
+/** Round the provider's non-negative decimal without converting it to a floating-point number. */
+function codexCreditText(decimal: string): string {
+  const [whole = "0", fraction = ""] = decimal.split(".");
+  const hundredths = BigInt(whole + fraction.slice(0, 2).padEnd(2, "0"));
+  const rounded = (fraction[2] ?? "0") >= "5" ? hundredths + 1n : hundredths;
+  if (rounded === 0n && /[1-9]/u.test(fraction)) return "<0.01";
+  const digits = rounded.toString().padStart(3, "0");
+  return `${groupDigits(digits.slice(0, -2))}.${digits.slice(-2)}`;
+}
+
 /**
  * "$12.40", "12.40 EUR", "1 request", "1,200 requests", "30 nano". A count unit is one word
  * ("request"); it is plural for every number but 1, and the plain "unit" is not shown.
@@ -237,9 +247,19 @@ export function amountText(amount: Amount): string {
 }
 
 /** The value of a row without a percent: its text, amount, used/limit, or yes/no. */
-export function rowValueText(row: QuotaRow): string {
+export function rowValueText(row: QuotaRow, codexCredits?: "compact"): string {
   if (row.text !== undefined) return row.text;
   if (row.amount) {
+    if (
+      row.id === "openai.codex_credits" &&
+      row.type === "balance" &&
+      row.amount.unit.kind === "count" &&
+      row.amount.unit.unit === "credit"
+    ) {
+      const amount = codexCreditText(row.amount.decimal);
+      if (codexCredits === "compact") return amount;
+      return `${amount} ${amount === "1.00" ? "credit" : "credits"} left`;
+    }
     const amount = amountText(row.amount);
     if (row.type === "balance") return `${amount} left`;
     return row.type === "usage" ? `${amount} used` : amount;

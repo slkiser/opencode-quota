@@ -250,6 +250,18 @@ describe("view format", () => {
   });
 
   it.each([
+    { decimal: "0", expected: "0.00 credits left" },
+    { decimal: "0.000001", expected: "<0.01 credits left" },
+    { decimal: "9007199254740993.995", expected: "9,007,199,254,740,994.00 credits left" },
+  ])("formats a Codex balance of $decimal", ({ decimal, expected }) => {
+    const balance = row("openai.codex_credits", {
+      type: "balance",
+      amount: { decimal, unit: { kind: "count", unit: "credit" } },
+    });
+    expect(rowValueText(balance)).toBe(expected);
+  });
+
+  it.each([
     { text: "Claude", width: 9, expected: "Claude   " },
     { text: "OpenRouter", width: 9, expected: "OpenRout…" },
     { text: "Copilot (pro)", width: 9, expected: "Copilot… " },

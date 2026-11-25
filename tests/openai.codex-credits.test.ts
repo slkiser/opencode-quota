@@ -109,8 +109,8 @@ it("honors explicit unlimited before the balance", async () => {
   expect(row?.text).toBe("Unlimited credits");
   expect(row?.amount).toBeUndefined();
 });
-it("keeps fractions in compact surfaces and full units in reports", async () => {
-  const result = await snapshot({ has_credits: true, balance: "1250.5" });
+it("rounds Codex credits to two decimals in compact surfaces and reports", async () => {
+  const result = await snapshot({ has_credits: true, balance: "51217.9053020000" });
   const settings = defaultSettings();
   const texts = [
     sidebarPanel(result, settings, { nowMs: 0, width: 50, open: true }).lines,
@@ -119,18 +119,18 @@ it("keeps fractions in compact surfaces and full units in reports", async () => 
   ].map((lines) => lines.map(lineText).join("\n"));
   for (const text of texts) {
     expect(text).toContain("Codex credits");
-    expect(text).toContain("1,250.5");
+    expect(text).toMatch(/51,217\.91(?!\d)/u);
     expect(text).not.toContain("credits left");
   }
-  expect(panelView(result, settings, 0).groups[0]?.rows.at(-1)?.value).toBe("1,250.5");
-  expect(pickedGroups(result, settings, "statusLine", 0).at(-1)?.row?.value).toBe("1,250.5");
+  expect(panelView(result, settings, 0).groups[0]?.rows.at(-1)?.value).toBe("51,217.91");
+  expect(pickedGroups(result, settings, "statusLine", 0).at(-1)?.row?.value).toBe("51,217.91");
   expect(
     plainLines({
       groups: visibleGroups(result, settings, "sidebar", settings.words),
       words: settings.words,
       nowMs: 0,
     }).join("\n"),
-  ).toContain("1,250.5 credits left");
+  ).toContain("51,217.91 credits left");
 });
 it("keeps account balances separate, named, hidden and pageable with stale warnings", async () => {
   const result = await snapshot({ has_credits: true, balance: "1250.5" }, true);
@@ -148,10 +148,12 @@ it("keeps account balances separate, named, hidden and pageable with stale warni
     groups
       .filter((group) => group.row?.id === "openai.codex_credits")
       .map((group) => group.row?.value),
-  ).toEqual(["1,250.5", "2,500.25"]);
+  ).toEqual(["1,250.50", "2,500.25"]);
   const input = statusLineInput(result, settings, 0);
   expect(statusLayout(input, 50, 0, "numbers").hiddenAfter).toBeGreaterThan(0);
-  expect(statusLayout(input, 200, 1, "numbers").shown.map(lineText).join(" ")).toContain("1,250.5");
+  expect(statusLayout(input, 200, 1, "numbers").shown.map(lineText).join(" ")).toContain(
+    "1,250.50",
+  );
   settings.statusLine.hidden = ["openai.codex_credits"];
   expect(pickedGroups(result, settings, "statusLine", 0)).toHaveLength(2);
 });
