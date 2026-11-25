@@ -383,6 +383,17 @@ describe("queryOpenAIQuota", () => {
       },
     },
     {
+      name: "classifies a 30-day window as monthly",
+      usage: {
+        plan_type: "pro",
+        rate_limit: {
+          primary_window: rateWindow(10, 2_592_000, { reset_after_seconds: 2_592_000 }),
+        },
+      },
+      label: "OpenAI (Pro)",
+      windows: { monthly: { percentRemaining: 90, resetTimeIso: "2026-01-31T00:00:00.000Z" } },
+    },
+    {
       name: "omits an unknown duration while preserving a valid sibling",
       usage: {
         plan_type: "pro",

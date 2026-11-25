@@ -59,6 +59,7 @@ type OpenAIWindows = Partial<Record<OpenAIWindowKind | "codeReview", OpenAIWindo
 const WINDOW_KIND_BY_DURATION: Readonly<Record<number, OpenAIWindowKind>> = {
   18000: "hourly",
   604800: "weekly",
+  2592000: "monthly",
   2628000: "monthly",
 };
 
