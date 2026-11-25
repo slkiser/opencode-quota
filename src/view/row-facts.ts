@@ -9,7 +9,6 @@ import { type Pace, paceOf } from "../core/pace.js";
 import type { Words } from "../core/types.js";
 import { WINDOWS } from "../core/windows.js";
 import {
-  amountText,
   type DurationStyle,
   formatDuration,
   largestUnit,
@@ -35,7 +34,7 @@ export type Place = {
    * "58%" in the bare style. "usedWord": "58%", but "42% used", which bare would read as left.
    */
   percent: "number" | "words" | "usedWord";
-  /** Exact Codex count without the repeated unit on compact surfaces. */
+  /** Codex credit balance without the repeated unit on compact surfaces. */
   codexCredits?: "compact";
   /** Reset and pace times in this style, whatever the words (Limits: always "exact"). */
   times?: Words["reset"];
@@ -136,16 +135,13 @@ export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Pl
   const name = nameOf(item, group, place);
   const percent = row.percentRemaining;
   if (percent === undefined) {
-    const compact =
-      place.codexCredits === "compact" &&
-      row.id === "openai.codex_credits" &&
-      row.type === "balance" &&
-      row.text === undefined &&
-      row.amount?.unit.kind === "count" &&
-      row.amount.unit.unit === "credit"
-        ? amountText({ ...row.amount, unit: { kind: "count", unit: "unit" } })
-        : undefined;
-    return { id: row.id, name, value: compact ?? rowValueText(row), reset: "", shortReset: "" };
+    return {
+      id: row.id,
+      name,
+      value: rowValueText(row, place.codexCredits),
+      reset: "",
+      shortReset: "",
+    };
   }
   const withWord =
     place.percent === "words" || (place.percent === "usedWord" && words.percent === "used");
